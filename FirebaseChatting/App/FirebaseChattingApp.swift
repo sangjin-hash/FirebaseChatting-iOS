@@ -6,14 +6,21 @@
 //
 
 import SwiftUI
+import ComposableArchitecture
 
 @main
 struct FirebaseChattingApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var delegate
-    
+
+    let store = Store(initialState: AppFeature.State()) {
+        AppFeature()
+    }
+
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            AuthenticatedView(
+                store: store.scope(state: \.auth, action: \.auth)
+            )
         }
     }
 }
