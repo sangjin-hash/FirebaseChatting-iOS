@@ -67,7 +67,6 @@ Pods/
 Carthage/Build/
 
 # Accio dependency management
-Dependencies/
 .accio/
 
 # fastlane
