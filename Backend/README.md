@@ -6,8 +6,8 @@
 $ npm install -g firebase-tools
 ```
 
-[!Tip]
-'Firebase Functions' requires the 'Blaze' plan, which allows you to pay as you use. You can get Free $300 credit for 3 Months in GCP.
+> [!Tip]
+> 'Firebase Functions' requires the 'Blaze' plan, which allows you to pay as you use. You can get Free $300 credit for 3 Months in GCP.
 > https://firebase.blog/posts/2024/11/claim-300-to-get-started
 
 - Project Start
