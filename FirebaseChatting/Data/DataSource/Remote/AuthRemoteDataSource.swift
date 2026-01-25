@@ -1,14 +1,14 @@
 //
-//  AuthClient.swift
+//  AuthRemoteDataSource.swift
 //  FirebaseChatting
 //
 //  Created by Sangjin Lee
 //
 
 import Foundation
-import ComposableArchitecture
 import FirebaseCore
 import FirebaseAuth
+import FirebaseFirestore
 import GoogleSignIn
 
 // MARK: - Auth Error
@@ -20,20 +20,17 @@ enum AuthError: Error, Equatable {
     case firebaseError(String)
 }
 
-// MARK: - AuthClient
+// MARK: - AuthRemoteDataSource
 
-@DependencyClient
-struct AuthClient: Sendable {
-    var checkAuthenticationState: @Sendable () -> String?
-    var signInWithGoogle: @Sendable () async throws -> FirebaseChatting.User
-    var logout: @Sendable () async throws -> Void
-}
+struct AuthRemoteDataSource: Sendable {
+    var getCurrentUserId: @Sendable () -> String?
+    var signInWithGoogle: @Sendable () async throws -> User
+    var signOut: @Sendable () throws -> Void
+    var getIdToken: @Sendable () async throws -> String
+    var checkUserDocumentExists: @Sendable (_ userId: String) async -> Bool
 
-// MARK: - Dependency Key
-
-extension AuthClient: DependencyKey {
-    static let liveValue = AuthClient(
-        checkAuthenticationState: {
+    static let live = AuthRemoteDataSource(
+        getCurrentUserId: {
             Auth.auth().currentUser?.uid
         },
         signInWithGoogle: {
@@ -43,53 +40,72 @@ extension AuthClient: DependencyKey {
                 }
             }
         },
-        logout: {
+        signOut: {
             try Auth.auth().signOut()
+        },
+        getIdToken: {
+            guard let currentUser = Auth.auth().currentUser else {
+                throw AuthError.invalidError
+            }
+
+            return try await withCheckedThrowingContinuation { continuation in
+                currentUser.getIDToken { token, error in
+                    if let error {
+                        continuation.resume(throwing: AuthError.firebaseError(error.localizedDescription))
+                    } else if let token {
+                        continuation.resume(returning: token)
+                    } else {
+                        continuation.resume(throwing: AuthError.tokenError)
+                    }
+                }
+            }
+        },
+        checkUserDocumentExists: { userId in
+            guard !userId.isEmpty else { return false }
+            do {
+                let db = Firestore.firestore()
+                let document = try await db.collection("users").document(userId).getDocument()
+                return document.exists
+            } catch {
+                return false
+            }
         }
     )
 }
 
-// MARK: - Dependency Values
-
-extension DependencyValues {
-    var authClient: AuthClient {
-        get { self[AuthClient.self] }
-        set { self[AuthClient.self] = newValue }
-    }
-}
-
 // MARK: - Mock Helper
 
-extension AuthClient {
+extension AuthRemoteDataSource {
     static func mock(
-        checkAuthenticationState: @escaping @Sendable () -> String? = { nil },
-        signInWithGoogle: @escaping @Sendable () async throws -> FirebaseChatting.User = {
-            FirebaseChatting.User(id: "mock", name: "Mock User", profileURL: nil)
+        getCurrentUserId: @escaping @Sendable () -> String? = { nil },
+        signInWithGoogle: @escaping @Sendable () async throws -> User = {
+            User(id: "mock", nickname: "Mock User", profilePhotoUrl: nil)
         },
-        logout: @escaping @Sendable () async throws -> Void = { }
+        signOut: @escaping @Sendable () throws -> Void = { },
+        getIdToken: @escaping @Sendable () async throws -> String = { "mock-token" },
+        checkUserDocumentExists: @escaping @Sendable (_ userId: String) async -> Bool = { _ in true }
     ) -> Self {
-        AuthClient(
-            checkAuthenticationState: checkAuthenticationState,
+        AuthRemoteDataSource(
+            getCurrentUserId: getCurrentUserId,
             signInWithGoogle: signInWithGoogle,
-            logout: logout
+            signOut: signOut,
+            getIdToken: getIdToken,
+            checkUserDocumentExists: checkUserDocumentExists
         )
     }
 }
 
 // MARK: - Private Helpers
 
-private func signInWithGoogleInternal(completion: @escaping (Result<FirebaseChatting.User, Error>) -> Void) {
-    // 1. Firebase ClientID 가져오기
+private func signInWithGoogleInternal(completion: @escaping (Result<User, Error>) -> Void) {
     guard let clientID = FirebaseApp.app()?.options.clientID else {
         completion(.failure(AuthError.clientIDError))
         return
     }
 
-    // 2. Google Sign-In 설정
     let config = GIDConfiguration(clientID: clientID)
     GIDSignIn.sharedInstance.configuration = config
 
-    // 3. RootViewController 가져오기 (메인 스레드에서 실행)
     Task { @MainActor in
         guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
               let window = windowScene.windows.first,
@@ -98,7 +114,6 @@ private func signInWithGoogleInternal(completion: @escaping (Result<FirebaseChat
             return
         }
 
-        // 4. Google Sign-In 실행
         GIDSignIn.sharedInstance.signIn(withPresenting: rootViewController) { result, error in
             if let error {
                 completion(.failure(error))
@@ -117,7 +132,6 @@ private func signInWithGoogleInternal(completion: @escaping (Result<FirebaseChat
                 accessToken: accessToken
             )
 
-            // 5. Firebase 인증
             authenticateWithFirebase(credential: credential, completion: completion)
         }
     }
@@ -125,7 +139,7 @@ private func signInWithGoogleInternal(completion: @escaping (Result<FirebaseChat
 
 private func authenticateWithFirebase(
     credential: AuthCredential,
-    completion: @escaping (Result<FirebaseChatting.User, Error>) -> Void
+    completion: @escaping (Result<User, Error>) -> Void
 ) {
     Auth.auth().signIn(with: credential) { result, error in
         if let error {
@@ -139,10 +153,10 @@ private func authenticateWithFirebase(
         }
 
         let firebaseUser = result.user
-        let user = FirebaseChatting.User(
+        let user = User(
             id: firebaseUser.uid,
-            name: firebaseUser.displayName ?? "Default",
-            profileURL: firebaseUser.photoURL?.absoluteString
+            nickname: firebaseUser.displayName,
+            profilePhotoUrl: firebaseUser.photoURL?.absoluteString
         )
 
         completion(.success(user))

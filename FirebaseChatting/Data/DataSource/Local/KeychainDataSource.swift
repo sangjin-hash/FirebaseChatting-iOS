@@ -1,12 +1,11 @@
 //
-//  KeychainClient.swift
+//  KeychainDataSource.swift
 //  FirebaseChatting
 //
 //  Created by Sangjin Lee
 //
 
 import Foundation
-@preconcurrency import ComposableArchitecture
 import Security
 
 // MARK: - Keychain Error
@@ -17,21 +16,14 @@ enum KeychainError: Error, Equatable {
     case unexpectedData
 }
 
-// MARK: - KeychainClient
+// MARK: - KeychainDataSource
 
-@DependencyClient
-struct KeychainClient: Sendable {
+struct KeychainDataSource: Sendable {
     var saveToken: @Sendable (_ token: String) throws -> Void
-    var loadToken: @Sendable () -> String? = { nil }
+    var loadToken: @Sendable () -> String?
     var deleteToken: @Sendable () throws -> Void
-    var isFirstLaunch: @Sendable () -> Bool = { false }
-    var setNotFirstLaunch: @Sendable () -> Void = { }
-}
 
-// MARK: - Dependency Key
-
-extension KeychainClient: DependencyKey {
-    static let liveValue = KeychainClient(
+    static let live = KeychainDataSource(
         saveToken: { token in
             let data = token.data(using: .utf8)!
             let query: [String: Any] = [
@@ -78,43 +70,22 @@ extension KeychainClient: DependencyKey {
             guard status == errSecSuccess || status == errSecItemNotFound else {
                 throw KeychainError.deleteFailed
             }
-        },
-        isFirstLaunch: {
-            let key = "hasLaunchedBefore"
-            return !UserDefaults.standard.bool(forKey: key)
-        },
-        setNotFirstLaunch: {
-            let key = "hasLaunchedBefore"
-            UserDefaults.standard.set(true, forKey: key)
         }
     )
 }
 
-// MARK: - Dependency Values
-
-extension DependencyValues {
-    var keychainClient: KeychainClient {
-        get { self[KeychainClient.self] }
-        set { self[KeychainClient.self] = newValue }
-    }
-}
-
 // MARK: - Mock Helper
 
-extension KeychainClient {
+extension KeychainDataSource {
     static func mock(
         saveToken: @escaping @Sendable (_ token: String) throws -> Void = { _ in },
         loadToken: @escaping @Sendable () -> String? = { nil },
-        deleteToken: @escaping @Sendable () throws -> Void = { },
-        isFirstLaunch: @escaping @Sendable () -> Bool = { false },
-        setNotFirstLaunch: @escaping @Sendable () -> Void = { }
+        deleteToken: @escaping @Sendable () throws -> Void = { }
     ) -> Self {
-        KeychainClient(
+        KeychainDataSource(
             saveToken: saveToken,
             loadToken: loadToken,
-            deleteToken: deleteToken,
-            isFirstLaunch: isFirstLaunch,
-            setNotFirstLaunch: setNotFirstLaunch
+            deleteToken: deleteToken
         )
     }
 }
