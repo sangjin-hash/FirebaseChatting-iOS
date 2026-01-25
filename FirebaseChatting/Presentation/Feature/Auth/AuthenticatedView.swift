@@ -17,11 +17,9 @@ struct AuthenticatedView: View {
             case .unauthenticated:
                 LoginView(store: store)
             case .authenticated:
-                MainTabView(
-                    store: Store(initialState: MainTabFeature.State()) {
-                        MainTabFeature()
-                    }
-                )
+                if let mainTabStore = store.scope(state: \.mainTab, action: \.mainTab) {
+                    MainTabView(store: mainTabStore)
+                }
             }
         }
         .onAppear {
@@ -35,7 +33,7 @@ struct AuthenticatedView: View {
         store: Store(initialState: AuthFeature.State()) {
             AuthFeature()
         } withDependencies: {
-            $0.authClient = .mock()
+            $0.authRepository = .mock()
         }
     )
 }

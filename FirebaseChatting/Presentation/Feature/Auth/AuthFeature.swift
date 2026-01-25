@@ -20,6 +20,7 @@ struct AuthFeature {
         var userId: String?
         var user: User?
         var error: AuthError?
+        var mainTab: MainTabFeature.State?
     }
 
     enum AuthenticationState: Equatable {
@@ -39,12 +40,13 @@ struct AuthFeature {
         case logoutButtonTapped
         case logoutCompleted
         case logoutFailed(AuthError)
+
+        case mainTab(MainTabFeature.Action)
     }
 
     // MARK: - Dependency
 
-    @Dependency(\.authClient) var authClient
-    @Dependency(\.keychainClient) var keychainClient
+    @Dependency(\.authRepository) var authRepository
 
     // MARK: - Reducer
 
@@ -54,21 +56,18 @@ struct AuthFeature {
 
             // 인증 상태 확인
             case .onAppear:
-                // 1. 키체인에서 저장된 토큰 확인 (자동 로그인)
-                if let savedUserId = keychainClient.loadToken() {
-                    return .send(.authCheckCompleted(savedUserId))
-                }
-
-                // 2. Firebase Auth 상태 확인
-                let userId = authClient.checkAuthenticationState()
+                // Firebase Auth 상태 확인
+                let userId = authRepository.checkAuthenticationState()
                 return .send(.authCheckCompleted(userId))
 
             case let .authCheckCompleted(userId):
                 if let userId {
                     state.userId = userId
                     state.authenticationState = .authenticated
+                    state.mainTab = MainTabFeature.State()
                 } else {
                     state.authenticationState = .unauthenticated
+                    state.mainTab = nil
                 }
                 return .none
 
@@ -78,7 +77,7 @@ struct AuthFeature {
                 state.error = nil
                 return .run { send in
                     do {
-                        let user = try await authClient.signInWithGoogle()
+                        let user = try await authRepository.signInWithGoogle()
                         await send(.googleLoginResponse(.success(user)))
                     } catch let error as AuthError {
                         await send(.googleLoginResponse(.failure(error)))
@@ -92,9 +91,7 @@ struct AuthFeature {
                 state.user = user
                 state.userId = user.id
                 state.authenticationState = .authenticated
-
-                // 키체인에 userId 저장
-                try? keychainClient.saveToken(user.id)
+                state.mainTab = MainTabFeature.State()
                 return .none
 
             case let .googleLoginResponse(.failure(error)):
@@ -104,13 +101,9 @@ struct AuthFeature {
 
             // 로그아웃
             case .logoutButtonTapped:
-                // 키체인에서 토큰 삭제
-                try? keychainClient.deleteToken()
-
                 return .run { send in
                     do {
-                        // Firebase 로그아웃
-                        try await authClient.logout()
+                        try await authRepository.logout()
                         await send(.logoutCompleted)
                     } catch let error as AuthError {
                         await send(.logoutFailed(error))
@@ -123,12 +116,26 @@ struct AuthFeature {
                 state.authenticationState = .unauthenticated
                 state.userId = nil
                 state.user = nil
+                state.mainTab = nil
                 return .none
 
             case .logoutFailed:
                 // 로그아웃 실패는 무시 (로컬 상태만 초기화)
                 return .none
+
+            case .mainTab(.delegate(.logoutSucceeded)):
+                state.authenticationState = .unauthenticated
+                state.userId = nil
+                state.user = nil
+                state.mainTab = nil
+                return .none
+
+            case .mainTab:
+                return .none
             }
+        }
+        .ifLet(\.mainTab, action: \.mainTab) {
+            MainTabFeature()
         }
     }
 }

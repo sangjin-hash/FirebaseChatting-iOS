@@ -12,7 +12,7 @@ struct ChatListView: View {
     let store: StoreOf<ChatListFeature>
 
     var body: some View {
-        Text("채팅")
+        Text(Strings.Chat.title)
             .font(.largeTitle)
     }
 }

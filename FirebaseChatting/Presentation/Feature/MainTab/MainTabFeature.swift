@@ -26,6 +26,13 @@ struct MainTabFeature {
         case selectedTabChanged(MainTabType)
         case home(HomeFeature.Action)
         case chatList(ChatListFeature.Action)
+
+        // Delegate
+        case delegate(Delegate)
+
+        enum Delegate: Equatable {
+            case logoutSucceeded
+        }
     }
 
     // MARK: - Reducer
@@ -45,10 +52,16 @@ struct MainTabFeature {
                 state.selectedTab = tab
                 return .none
 
+            case .home(.delegate(.logoutSucceeded)):
+                return .send(.delegate(.logoutSucceeded))
+
             case .home:
                 return .none
 
             case .chatList:
+                return .none
+
+            case .delegate:
                 return .none
             }
         }

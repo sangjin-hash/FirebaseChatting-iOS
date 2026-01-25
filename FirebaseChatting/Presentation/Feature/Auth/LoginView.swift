@@ -13,7 +13,7 @@ struct LoginView: View {
 
     var body: some View {
         VStack(alignment: .leading) {
-            Text("로그인")
+            Text(Strings.Auth.login)
                 .font(.system(size: 28, weight: .bold))
                 .foregroundColor(.bkText)
                 .padding(.top, 80)
@@ -24,7 +24,7 @@ struct LoginView: View {
             Button {
                 store.send(.googleLoginButtonTapped)
             } label: {
-                Text("Google 로그인")
+                Text(Strings.Auth.googleLogin)
                     .font(.system(size: 14))
                     .foregroundColor(.bkText)
                     .frame(maxWidth: .infinity, maxHeight: 40)
@@ -48,7 +48,7 @@ struct LoginView: View {
         store: Store(initialState: AuthFeature.State()) {
             AuthFeature()
         } withDependencies: {
-            $0.authClient = .mock()
+            $0.authRepository = .mock()
         }
     )
 }
