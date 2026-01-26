@@ -14,9 +14,22 @@ struct SearchView: View {
     var body: some View {
         VStack(spacing: 0) {
             // 검색 바
-            HStack {
+            HStack(spacing: 12) {
                 TextField(Strings.Search.placeholder, text: $store.searchQuery)
-                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+                    .background(.ultraThinMaterial, in: Capsule())
+                    .overlay {
+                        Capsule()
+                            .stroke(
+                                LinearGradient(
+                                    colors: [.white.opacity(0.3), .white.opacity(0.1)],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                ),
+                                lineWidth: 0.5
+                            )
+                    }
                     .autocapitalization(.none)
                     .disableAutocorrection(true)
                     .submitLabel(.search)
@@ -24,16 +37,13 @@ struct SearchView: View {
                         store.send(.searchButtonTapped)
                     }
 
-                Button {
-                    store.send(.searchButtonTapped)
-                } label: {
-                    Image(systemName: "magnifyingglass")
-                        .padding(8)
-                        .background(Color.accentColor)
-                        .foregroundColor(.white)
-                        .cornerRadius(8)
-                }
-                .disabled(store.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                CircleIconButtonComponent(
+                    systemName: "magnifyingglass",
+                    isDisabled: store.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                    action: {
+                        store.send(.searchButtonTapped)
+                    }
+                )
             }
             .padding()
 
