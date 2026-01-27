@@ -12,8 +12,12 @@ import ComposableArchitecture
 
 @DependencyClient
 nonisolated struct UserRepository: Sendable {
-    var getUserWithFriends: @Sendable () async throws -> (user: User, friends: [User])
-    var searchUsers: @Sendable (_ query: String) async throws -> [User]
+    var observeUserDocument: @Sendable (_ userId: String) -> AsyncStream<User> = { _ in
+        AsyncStream { $0.finish() }
+    }
+    var getFriends: @Sendable (_ friendIds: [String]) async throws -> [Profile]
+    var getUserBatch: @Sendable (_ chatRoomIds: [String]) async throws -> [String: Profile]
+    var searchUsers: @Sendable (_ query: String) async throws -> [Profile]
     var addFriend: @Sendable (_ friendId: String) async throws -> Void
 }
 
@@ -21,12 +25,17 @@ nonisolated struct UserRepository: Sendable {
 
 extension UserRepository: DependencyKey {
     nonisolated static let liveValue: UserRepository = {
-        @Dependency(\.apiClient) var apiClient
-        let userDataSource = UserRemoteDataSource.live(apiClient: apiClient)
+        @Dependency(\.userRemoteDataSource) var userDataSource
 
         return UserRepository(
-            getUserWithFriends: {
-                try await userDataSource.getUserWithFriends()
+            observeUserDocument: { userId in
+                userDataSource.observeUserDocument(userId)
+            },
+            getFriends: { friendIds in
+                try await userDataSource.getFriends(friendIds)
+            },
+            getUserBatch: { chatRoomIds in
+                try await userDataSource.getUserBatch(chatRoomIds)
             },
             searchUsers: { query in
                 try await userDataSource.searchUsers(query)
@@ -44,23 +53,5 @@ extension DependencyValues {
     nonisolated var userRepository: UserRepository {
         get { self[UserRepository.self] }
         set { self[UserRepository.self] = newValue }
-    }
-}
-
-// MARK: - Mock Helper
-
-extension UserRepository {
-    static func mock(
-        getUserWithFriends: @escaping @Sendable () async throws -> (user: User, friends: [User]) = {
-            (user: User(id: "mock", nickname: "Mock User"), friends: [])
-        },
-        searchUsers: @escaping @Sendable (String) async throws -> [User] = { _ in [] },
-        addFriend: @escaping @Sendable (String) async throws -> Void = { _ in }
-    ) -> Self {
-        UserRepository(
-            getUserWithFriends: getUserWithFriends,
-            searchUsers: searchUsers,
-            addFriend: addFriend
-        )
     }
 }

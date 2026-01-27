@@ -3,9 +3,10 @@
  *
  * Functions:
  * 1. createUserDocument - Auth Trigger: 새 사용자 생성 시 Firestore에 자동 저장
- * 2. getUserWithFriends - Callable: 사용자 정보 + 친구목록 조회
- * 3. searchUsers - Callable: 닉네임 prefix 검색
- * 4. addFriend - Callable: 친구 추가 (양방향)
+ * 2. getFriends - Callable: 친구 프로필 목록 조회
+ * 3. getUserBatch - Callable: 채팅방별 상대방 프로필 조회
+ * 4. searchUsers - Callable: 닉네임 prefix 검색
+ * 5. addFriend - Callable: 친구 추가 (양방향)
  */
 
 import * as admin from "firebase-admin";
@@ -19,7 +20,16 @@ admin.initializeApp();
 const db = admin.firestore();
 
 /**
- * 사용자 정보 인터페이스
+ * 프로필 인터페이스 (API 응답용)
+ */
+interface Profile {
+  id: string;
+  nickname: string | null;
+  profilePhotoUrl: string | null;
+}
+
+/**
+ * 사용자 정보 인터페이스 (Firestore 문서 구조)
  */
 interface UserInfo {
   id: string;
@@ -27,6 +37,19 @@ interface UserInfo {
   profilePhotoUrl: string | null;
   friendIds: string[];
   chatRooms: string[];
+}
+
+/**
+ * UserInfo에서 Profile 추출
+ * @param {UserInfo} user - 사용자 정보
+ * @return {Profile} 프로필 정보
+ */
+function toProfile(user: UserInfo): Profile {
+  return {
+    id: user.id,
+    nickname: user.nickname,
+    profilePhotoUrl: user.profilePhotoUrl,
+  };
 }
 
 /**
@@ -75,14 +98,14 @@ export const createUserDocument = functions
   });
 
 /**
- * 사용자 정보 + 친구목록 조회
+ * 친구 프로필 목록 조회
  *
  * Callable Function
  *
- * @param userId - 조회할 사용자 ID
- * @returns 사용자 정보와 친구 목록
+ * @param friendIds - 조회할 친구 ID 목록
+ * @returns 친구 프로필 목록
  */
-export const getUserWithFriends = functions
+export const getFriends = functions
   .region("asia-northeast3")
   .https.onCall(async (data, context) => {
     // 인증 확인
@@ -93,23 +116,19 @@ export const getUserWithFriends = functions
       );
     }
 
-    const userId = context.auth.uid;
+    const friendIds = data.friendIds as string[];
 
-    logger.info(`Getting user with friends: ${userId}`);
+    if (!friendIds || !Array.isArray(friendIds)) {
+      throw new functions.https.HttpsError(
+        "invalid-argument",
+        "friendIds is required"
+      );
+    }
+
+    logger.info(`Getting ${friendIds.length} friends`);
 
     try {
-      // 1. 사용자 문서 조회
-      const userDoc = await db.collection("users").doc(userId).get();
-
-      if (!userDoc.exists) {
-        throw new functions.https.HttpsError("not-found", "User not found");
-      }
-
-      const user = userDoc.data() as UserInfo;
-
-      // 2. 친구 목록 조회 (30개씩 배치)
-      const friendIds = user.friendIds || [];
-      const friends: UserInfo[] = [];
+      const profiles: Profile[] = [];
 
       // Firestore 'in' 쿼리는 최대 30개까지만 지원
       for (let i = 0; i < friendIds.length; i += 30) {
@@ -122,21 +141,134 @@ export const getUserWithFriends = functions
 
           friendDocs.forEach((doc) => {
             if (doc.exists) {
-              friends.push(doc.data() as UserInfo);
+              const userData = doc.data() as UserInfo;
+              profiles.push(toProfile(userData));
             }
           });
         }
       }
 
-      logger.info(`Found ${friends.length} friends for user: ${userId}`);
+      logger.info(`Found ${profiles.length} friend profiles`);
 
-      return {user, friends};
+      return {profiles};
     } catch (error) {
-      logger.error(`Failed to get user with friends: ${userId}`, error);
-      if (error instanceof functions.https.HttpsError) {
-        throw error;
+      logger.error("Failed to get friends", error);
+      throw new functions.https.HttpsError("internal", "Failed to get friends");
+    }
+  });
+
+/**
+ * 채팅방별 상대방 프로필 조회
+ *
+ * Callable Function
+ *
+ * - 1:1 채팅방 (D_userId1_userId2): chatRoomId에서 상대방 userId 추출
+ * - 1:N 채팅방 (G_randomId): chatRooms/{id} 문서의 activeUsers에서 추출
+ *
+ * @param chatRooms - 조회할 채팅방 ID 목록
+ * @returns 채팅방별 상대방 프로필 맵
+ */
+export const getUserBatch = functions
+  .region("asia-northeast3")
+  .https.onCall(async (data, context) => {
+    // 인증 확인
+    if (!context.auth) {
+      throw new functions.https.HttpsError(
+        "unauthenticated",
+        "Login required"
+      );
+    }
+
+    const userId = context.auth.uid;
+    const chatRoomIds = data.chatRooms as string[];
+
+    if (!chatRoomIds || !Array.isArray(chatRoomIds)) {
+      throw new functions.https.HttpsError(
+        "invalid-argument",
+        "chatRooms is required"
+      );
+    }
+
+    logger.info(`Getting user batch for ${chatRoomIds.length} chat rooms`);
+
+    try {
+      const profiles: { [chatRoomId: string]: Profile } = {};
+      const userIdsToFetch: Set<string> = new Set();
+      const chatRoomUserMap: { [chatRoomId: string]: string } = {};
+
+      // 1. 채팅방 ID에서 상대방 userId 추출
+      for (const chatRoomId of chatRoomIds) {
+        if (chatRoomId.startsWith("D_")) {
+          // 1:1 채팅방: D_userId1_userId2
+          const parts = chatRoomId.substring(2).split("_");
+          const otherUserId = parts.find((id) => id !== userId);
+          if (otherUserId) {
+            userIdsToFetch.add(otherUserId);
+            chatRoomUserMap[chatRoomId] = otherUserId;
+          }
+        }
       }
-      throw new functions.https.HttpsError("internal", "Failed to get user");
+
+      // 2. 1:N 채팅방은 Firestore에서 activeUsers 조회
+      const groupChatRoomIds = chatRoomIds.filter(
+        (id) => id.startsWith("G_")
+      );
+      for (const chatRoomId of groupChatRoomIds) {
+        const chatRoomDoc = await db
+          .collection("chatRooms").doc(chatRoomId).get();
+        if (chatRoomDoc.exists) {
+          const chatRoomData = chatRoomDoc.data();
+          type ActiveUsersMap = { [key: string]: unknown };
+          const activeUsers =
+            chatRoomData?.activeUsers as ActiveUsersMap || {};
+          const otherUserIds = Object.keys(activeUsers)
+            .filter((id) => id !== userId);
+          if (otherUserIds.length > 0) {
+            // 첫 번째 사용자를 대표로 사용
+            userIdsToFetch.add(otherUserIds[0]);
+            chatRoomUserMap[chatRoomId] = otherUserIds[0];
+          }
+        }
+      }
+
+      // 3. 사용자 프로필 일괄 조회
+      const userIdsArray = Array.from(userIdsToFetch);
+      const userProfiles: { [userId: string]: Profile } = {};
+
+      for (let i = 0; i < userIdsArray.length; i += 30) {
+        const batch = userIdsArray.slice(i, i + 30);
+        if (batch.length > 0) {
+          const userDocs = await db
+            .collection("users")
+            .where(admin.firestore.FieldPath.documentId(), "in", batch)
+            .get();
+
+          userDocs.forEach((doc) => {
+            if (doc.exists) {
+              const userData = doc.data() as UserInfo;
+              userProfiles[doc.id] = toProfile(userData);
+            }
+          });
+        }
+      }
+
+      // 4. 채팅방별 프로필 매핑
+      for (const [chatRoomId, otherUserId] of Object.entries(chatRoomUserMap)) {
+        if (userProfiles[otherUserId]) {
+          profiles[chatRoomId] = userProfiles[otherUserId];
+        }
+      }
+
+      const count = Object.keys(profiles).length;
+      logger.info(`Found profiles for ${count} chat rooms`);
+
+      return {profiles};
+    } catch (error) {
+      logger.error("Failed to get user batch", error);
+      throw new functions.https.HttpsError(
+        "internal",
+        "Failed to get user batch"
+      );
     }
   });
 
@@ -181,12 +313,12 @@ export const searchUsers = functions
         .limit(20)
         .get();
 
-      const users: UserInfo[] = [];
+      const users: Profile[] = [];
       snapshot.forEach((doc) => {
-        const user = doc.data() as UserInfo;
+        const userData = doc.data() as UserInfo;
         // 본인 제외
-        if (user.id !== userId) {
-          users.push(user);
+        if (userData.id !== userId) {
+          users.push(toProfile(userData));
         }
       });
 

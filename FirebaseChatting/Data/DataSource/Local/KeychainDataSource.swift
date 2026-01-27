@@ -7,6 +7,7 @@
 
 import Foundation
 import Security
+import ComposableArchitecture
 
 // MARK: - Keychain Error
 
@@ -18,12 +19,17 @@ enum KeychainError: Error, Equatable {
 
 // MARK: - KeychainDataSource
 
-struct KeychainDataSource: Sendable {
+@DependencyClient
+nonisolated struct KeychainDataSource: Sendable {
     var saveToken: @Sendable (_ token: String) throws -> Void
     var loadToken: @Sendable () -> String?
     var deleteToken: @Sendable () throws -> Void
+}
 
-    static let live = KeychainDataSource(
+// MARK: - DependencyKey
+
+extension KeychainDataSource: DependencyKey {
+    nonisolated static let liveValue = KeychainDataSource(
         saveToken: { token in
             let data = token.data(using: .utf8)!
             let query: [String: Any] = [
@@ -74,18 +80,11 @@ struct KeychainDataSource: Sendable {
     )
 }
 
-// MARK: - Mock Helper
+// MARK: - DependencyValues
 
-extension KeychainDataSource {
-    static func mock(
-        saveToken: @escaping @Sendable (_ token: String) throws -> Void = { _ in },
-        loadToken: @escaping @Sendable () -> String? = { nil },
-        deleteToken: @escaping @Sendable () throws -> Void = { }
-    ) -> Self {
-        KeychainDataSource(
-            saveToken: saveToken,
-            loadToken: loadToken,
-            deleteToken: deleteToken
-        )
+extension DependencyValues {
+    nonisolated var keychainDataSource: KeychainDataSource {
+        get { self[KeychainDataSource.self] }
+        set { self[KeychainDataSource.self] = newValue }
     }
 }

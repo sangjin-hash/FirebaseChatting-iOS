@@ -6,33 +6,89 @@
 //
 
 import Foundation
+import FirebaseFirestore
+import ComposableArchitecture
 
 // MARK: - API Endpoints
 
 enum UserAPIEndpoint {
-    static let getUserWithFriends = "/getUserWithFriends"
-    static let searchUsers: String = "/searchUsers"
-    static let addFriend: String = "/addFriend"
+    static let getFriends = "/getFriends"
+    static let getUserBatch = "/getUserBatch"
+    static let searchUsers = "/searchUsers"
+    static let addFriend = "/addFriend"
 }
 
 // MARK: - UserRemoteDataSource
 
-struct UserRemoteDataSource: Sendable {
-    var getUserWithFriends: @Sendable () async throws -> (user: User, friends: [User])
-    var searchUsers: @Sendable (_ query: String) async throws -> [User]
+@DependencyClient
+nonisolated struct UserRemoteDataSource: Sendable {
+    var observeUserDocument: @Sendable (_ userId: String) -> AsyncStream<User> = { _ in
+        AsyncStream { $0.finish() }
+    }
+    var getFriends: @Sendable (_ friendIds: [String]) async throws -> [Profile]
+    var getUserBatch: @Sendable (_ chatRoomIds: [String]) async throws -> [String: Profile]
+    var searchUsers: @Sendable (_ query: String) async throws -> [Profile]
     var addFriend: @Sendable (_ friendId: String) async throws -> Void
+}
 
-    static func live(apiClient: APIClient) -> UserRemoteDataSource {
-        UserRemoteDataSource(
-            getUserWithFriends: {
-                let request = EmptyDataRequest()
-                let bodyData = try JSONEncoder().encode(request)
-                let responseData = try await apiClient.post(UserAPIEndpoint.getUserWithFriends, bodyData)
+// MARK: - DependencyKey
 
-                let response = try JSONDecoder().decode(GetUserWithFriendsResponse.self, from: responseData)
-                return (user: response.result.user, friends: response.result.friends)
+extension UserRemoteDataSource: DependencyKey {
+    nonisolated static let liveValue: UserRemoteDataSource = {
+        @Dependency(\.apiClient) var apiClient
+        let db = Firestore.firestore()
+
+        return UserRemoteDataSource(
+            observeUserDocument: { userId in
+                AsyncStream { continuation in
+                    let listener = db.collection("users").document(userId)
+                        .addSnapshotListener { snapshot, error in
+                            if let error {
+                                print("UserRemoteDataSource observeUserDocument error: \(error.localizedDescription)")
+                                return
+                            }
+
+                            guard let snapshot, snapshot.exists,
+                                  let data = snapshot.data() else {
+                                return
+                            }
+
+                            let profile = Profile(
+                                id: data["id"] as? String ?? userId,
+                                nickname: data["nickname"] as? String,
+                                profilePhotoUrl: data["profilePhotoUrl"] as? String
+                            )
+                            let user = User(
+                                profile: profile,
+                                friendIds: data["friendIds"] as? [String] ?? [],
+                                chatRooms: data["chatRooms"] as? [String] ?? []
+                            )
+
+                            continuation.yield(user)
+                        }
+
+                    continuation.onTermination = { _ in
+                        listener.remove()
+                    }
+                }
             },
-            searchUsers: { (query: String) -> [User] in
+            getFriends: { (friendIds: [String]) -> [Profile] in
+                let request = GetFriendsRequest(friendIds: friendIds)
+                let bodyData = try JSONEncoder().encode(request)
+                let responseData = try await apiClient.post(UserAPIEndpoint.getFriends, bodyData)
+
+                let response = try JSONDecoder().decode(GetFriendsResponse.self, from: responseData)
+                return response.result.profiles
+            },
+            getUserBatch: { (chatRoomIds: [String]) -> [String: Profile] in
+                let request = GetUserBatchRequest(chatRooms: chatRoomIds)
+                let bodyData = try JSONEncoder().encode(request)
+                let responseData = try await apiClient.post(UserAPIEndpoint.getUserBatch, bodyData)
+
+                let response = try JSONDecoder().decode(GetUserBatchResponse.self, from: responseData)
+                return response.result.profiles
+            },
+            searchUsers: { (query: String) -> [Profile] in
                 let request = SearchUsersRequest(query: query)
                 let bodyData = try JSONEncoder().encode(request)
                 let responseData = try await apiClient.post(UserAPIEndpoint.searchUsers, bodyData)
@@ -46,23 +102,14 @@ struct UserRemoteDataSource: Sendable {
                 _ = try await apiClient.post(UserAPIEndpoint.addFriend, bodyData)
             }
         )
-    }
+    }()
 }
 
-// MARK: - Mock Helper
+// MARK: - DependencyValues
 
-extension UserRemoteDataSource {
-    static func mock(
-        getUserWithFriends: @escaping @Sendable () async throws -> (user: User, friends: [User]) = {
-            (user: User(id: "mock", nickname: "Mock User"), friends: [])
-        },
-        searchUsers: @escaping @Sendable (_ query: String) async throws -> [User] = { _ in [] },
-        addFriend: @escaping @Sendable (_ friendId: String) async throws -> Void = { _ in }
-    ) -> Self {
-        UserRemoteDataSource(
-            getUserWithFriends: getUserWithFriends,
-            searchUsers: searchUsers,
-            addFriend: addFriend
-        )
+extension DependencyValues {
+    nonisolated var userRemoteDataSource: UserRemoteDataSource {
+        get { self[UserRemoteDataSource.self] }
+        set { self[UserRemoteDataSource.self] = newValue }
     }
 }

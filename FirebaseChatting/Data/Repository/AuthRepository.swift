@@ -27,8 +27,8 @@ struct AuthRepository: Sendable {
 
 extension AuthRepository: DependencyKey {
     static let liveValue: AuthRepository = {
-        let authDataSource = AuthRemoteDataSource.live
-        let keychainDataSource = KeychainDataSource.live
+        @Dependency(\.authRemoteDataSource) var authDataSource
+        @Dependency(\.keychainDataSource) var keychainDataSource
 
         return AuthRepository(
             checkAuthenticationState: {
@@ -38,13 +38,13 @@ extension AuthRepository: DependencyKey {
                 let user = try await authDataSource.signInWithGoogle()
 
                 // Firestore 문서 생성 대기 (Firebase Auth Trigger가 비동기적으로 생성)
-                try await waitForUserDocument(userId: user.id, authDataSource: authDataSource)
+                try await waitForUserDocument(userId: user.profile.id, authDataSource: authDataSource)
 
                 // 토큰 저장
                 if let token = keychainDataSource.loadToken(), !token.isEmpty {
                     // 토큰이 이미 있으면 유지
                 } else {
-                    try? keychainDataSource.saveToken(user.id)
+                    try? keychainDataSource.saveToken(user.profile.id)
                 }
 
                 return user
@@ -63,24 +63,6 @@ extension DependencyValues {
     var authRepository: AuthRepository {
         get { self[AuthRepository.self] }
         set { self[AuthRepository.self] = newValue }
-    }
-}
-
-// MARK: - Mock Helper
-
-extension AuthRepository {
-    static func mock(
-        checkAuthenticationState: @escaping @Sendable () -> String? = { nil },
-        signInWithGoogle: @escaping @Sendable () async throws -> User = {
-            User(id: "mock", nickname: "Mock User", profilePhotoUrl: nil)
-        },
-        logout: @escaping @Sendable () async throws -> Void = { }
-    ) -> Self {
-        AuthRepository(
-            checkAuthenticationState: checkAuthenticationState,
-            signInWithGoogle: signInWithGoogle,
-            logout: logout
-        )
     }
 }
 

@@ -10,6 +10,7 @@ import FirebaseCore
 import FirebaseAuth
 import FirebaseFirestore
 import GoogleSignIn
+import ComposableArchitecture
 
 // MARK: - Auth Error
 
@@ -22,14 +23,19 @@ enum AuthError: Error, Equatable {
 
 // MARK: - AuthRemoteDataSource
 
-struct AuthRemoteDataSource: Sendable {
+@DependencyClient
+nonisolated struct AuthRemoteDataSource: Sendable {
     var getCurrentUserId: @Sendable () -> String?
     var signInWithGoogle: @Sendable () async throws -> User
     var signOut: @Sendable () throws -> Void
     var getIdToken: @Sendable () async throws -> String
-    var checkUserDocumentExists: @Sendable (_ userId: String) async -> Bool
+    var checkUserDocumentExists: @Sendable (_ userId: String) async -> Bool = { _ in false }
+}
 
-    static let live = AuthRemoteDataSource(
+// MARK: - DependencyKey
+
+extension AuthRemoteDataSource: DependencyKey {
+    nonisolated static let liveValue = AuthRemoteDataSource(
         getCurrentUserId: {
             Auth.auth().currentUser?.uid
         },
@@ -73,25 +79,12 @@ struct AuthRemoteDataSource: Sendable {
     )
 }
 
-// MARK: - Mock Helper
+// MARK: - DependencyValues
 
-extension AuthRemoteDataSource {
-    static func mock(
-        getCurrentUserId: @escaping @Sendable () -> String? = { nil },
-        signInWithGoogle: @escaping @Sendable () async throws -> User = {
-            User(id: "mock", nickname: "Mock User", profilePhotoUrl: nil)
-        },
-        signOut: @escaping @Sendable () throws -> Void = { },
-        getIdToken: @escaping @Sendable () async throws -> String = { "mock-token" },
-        checkUserDocumentExists: @escaping @Sendable (_ userId: String) async -> Bool = { _ in true }
-    ) -> Self {
-        AuthRemoteDataSource(
-            getCurrentUserId: getCurrentUserId,
-            signInWithGoogle: signInWithGoogle,
-            signOut: signOut,
-            getIdToken: getIdToken,
-            checkUserDocumentExists: checkUserDocumentExists
-        )
+extension DependencyValues {
+    nonisolated var authRemoteDataSource: AuthRemoteDataSource {
+        get { self[AuthRemoteDataSource.self] }
+        set { self[AuthRemoteDataSource.self] = newValue }
     }
 }
 
