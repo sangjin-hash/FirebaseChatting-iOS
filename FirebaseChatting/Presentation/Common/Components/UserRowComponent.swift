@@ -8,18 +8,18 @@
 import SwiftUI
 
 struct UserRowComponent<TrailingContent: View>: View {
-    let user: User
+    let profile: Profile
     var imageSize: CGFloat = 44
     var caption: String? = nil
     @ViewBuilder var trailingContent: () -> TrailingContent
 
     init(
-        user: User,
+        profile: Profile,
         imageSize: CGFloat = 44,
         caption: String? = nil,
         @ViewBuilder trailingContent: @escaping () -> TrailingContent = { EmptyView() }
     ) {
-        self.user = user
+        self.profile = profile
         self.imageSize = imageSize
         self.caption = caption
         self.trailingContent = trailingContent
@@ -28,7 +28,7 @@ struct UserRowComponent<TrailingContent: View>: View {
     var body: some View {
         HStack(spacing: 12) {
             // 프로필 이미지
-            AsyncImage(url: URL(string: user.profilePhotoUrl ?? "")) { image in
+            AsyncImage(url: URL(string: profile.profilePhotoUrl ?? "")) { image in
                 image
                     .resizable()
                     .aspectRatio(contentMode: .fill)
@@ -42,7 +42,7 @@ struct UserRowComponent<TrailingContent: View>: View {
 
             // 사용자 정보
             VStack(alignment: .leading, spacing: 4) {
-                Text(user.nickname ?? Strings.Common.noName)
+                Text(profile.nickname ?? Strings.Common.noName)
                     .font(imageSize > 50 ? .headline : .body)
 
                 if let caption {
@@ -60,13 +60,13 @@ struct UserRowComponent<TrailingContent: View>: View {
 }
 
 #Preview("기본") {
-    UserRowComponent<EmptyView>(user: User(id: "1", nickname: "테스트 유저"))
+    UserRowComponent<EmptyView>(profile: Profile(id: "1", nickname: "테스트 유저"))
         .padding()
 }
 
 #Preview("내 프로필") {
     UserRowComponent<EmptyView>(
-        user: User(id: "1", nickname: "테스트 유저"),
+        profile: Profile(id: "1", nickname: "테스트 유저"),
         imageSize: 60,
         caption: "나"
     )
@@ -74,7 +74,7 @@ struct UserRowComponent<TrailingContent: View>: View {
 }
 
 #Preview("채팅 버튼") {
-    UserRowComponent(user: User(id: "1", nickname: "테스트 유저")) {
+    UserRowComponent(profile: Profile(id: "1", nickname: "테스트 유저")) {
         CircleIconButtonComponent(
             systemName: "bubble.right",
             action: {}
@@ -84,7 +84,7 @@ struct UserRowComponent<TrailingContent: View>: View {
 }
 
 #Preview("친구 추가 버튼") {
-    UserRowComponent(user: User(id: "1", nickname: "테스트 유저")) {
+    UserRowComponent(profile: Profile(id: "1", nickname: "테스트 유저")) {
         CircleIconButtonComponent(
             systemName: "person.badge.plus",
             action: {}
@@ -94,7 +94,7 @@ struct UserRowComponent<TrailingContent: View>: View {
 }
 
 #Preview("친구") {
-    UserRowComponent(user: User(id: "1", nickname: "테스트 유저"), caption: "추가됨") {
+    UserRowComponent(profile: Profile(id: "1", nickname: "테스트 유저"), caption: "추가됨") {
         CircleIconButtonComponent(
             systemName: "person.badge.plus",
             isDisabled: true,

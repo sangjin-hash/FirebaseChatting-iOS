@@ -16,14 +16,14 @@ struct SearchFeature {
     @ObservableState
     struct State: Equatable {
         var searchQuery: String = ""
-        var searchResults: [User] = []
+        var searchResults: [Profile] = []
         var currentUserId: String = ""
         var currentUserFriendIds: [String]
         var isSearching: Bool = false
         var hasSearched: Bool = false
         var addingFriendId: String? = nil
         var error: String?
-        var addFriendConfirmTarget: User? = nil
+        var addFriendConfirmTarget: Profile? = nil
     }
 
     // MARK: - Action
@@ -31,11 +31,11 @@ struct SearchFeature {
     enum Action: Equatable, BindableAction {
         case binding(BindingAction<State>)
         case searchButtonTapped
-        case searchResultsLoaded(Result<[User], Error>)
-        case addFriendButtonTapped(User)
+        case searchResultsLoaded(Result<[Profile], Error>)
+        case addFriendButtonTapped(Profile)
         case addFriendConfirmDismissed
         case addFriendConfirmed
-        case friendAdded(Result<User, Error>)
+        case friendAdded(Result<Profile, Error>)
         case dismissButtonTapped
 
         // Equatable 준수를 위한 에러 비교

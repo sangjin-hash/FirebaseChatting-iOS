@@ -32,8 +32,6 @@ struct AuthenticatedView: View {
     AuthenticatedView(
         store: Store(initialState: AuthFeature.State()) {
             AuthFeature()
-        } withDependencies: {
-            $0.authRepository = .mock()
         }
     )
 }

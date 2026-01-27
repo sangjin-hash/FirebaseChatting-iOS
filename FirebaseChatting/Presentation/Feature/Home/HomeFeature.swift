@@ -16,28 +16,27 @@ struct HomeFeature {
     @ObservableState
     struct State: Equatable {
         var currentUser: User?
-        var friends: [User] = []
-        var isLoading: Bool = false
+        var friends: [Profile] = []
         var error: String?
         @Presents var searchDestination: SearchFeature.State?
-        var chatConfirmTarget: User? = nil
+        @Presents var chatRoomDestination: ChatRoomFeature.State?
+        var chatConfirmTarget: Profile? = nil
         var showLogoutConfirm: Bool = false
     }
 
     // MARK: - Action
 
     enum Action: Equatable {
-        case onAppear
-        case userWithFriendsLoaded(Result<(User, [User]), Error>)
         case logoutButtonTapped
         case logoutConfirmDismissed
         case logoutConfirmed
         case logoutCompleted(Result<Void, Error>)
         case searchButtonTapped
         case searchDestination(PresentationAction<SearchFeature.Action>)
-        case chatButtonTapped(User)
+        case chatButtonTapped(Profile)
         case chatConfirmDismissed
         case chatConfirmed
+        case chatRoomDestination(PresentationAction<ChatRoomFeature.Action>)
 
         // Delegate
         case delegate(Delegate)
@@ -49,8 +48,7 @@ struct HomeFeature {
         // Equatable 준수를 위한 에러 비교
         static func == (lhs: Action, rhs: Action) -> Bool {
             switch (lhs, rhs) {
-            case (.onAppear, .onAppear),
-                 (.logoutButtonTapped, .logoutButtonTapped),
+            case (.logoutButtonTapped, .logoutButtonTapped),
                  (.logoutConfirmDismissed, .logoutConfirmDismissed),
                  (.logoutConfirmed, .logoutConfirmed),
                  (.searchButtonTapped, .searchButtonTapped),
@@ -59,15 +57,6 @@ struct HomeFeature {
                 return true
             case let (.chatButtonTapped(lhs), .chatButtonTapped(rhs)):
                 return lhs == rhs
-            case let (.userWithFriendsLoaded(lhsResult), .userWithFriendsLoaded(rhsResult)):
-                switch (lhsResult, rhsResult) {
-                case let (.success(lhsValue), .success(rhsValue)):
-                    return lhsValue.0 == rhsValue.0 && lhsValue.1 == rhsValue.1
-                case (.failure, .failure):
-                    return true
-                default:
-                    return false
-                }
             case let (.logoutCompleted(lhsResult), .logoutCompleted(rhsResult)):
                 switch (lhsResult, rhsResult) {
                 case (.success, .success), (.failure, .failure):
@@ -76,6 +65,8 @@ struct HomeFeature {
                     return false
                 }
             case let (.searchDestination(lhs), .searchDestination(rhs)):
+                return lhs == rhs
+            case let (.chatRoomDestination(lhs), .chatRoomDestination(rhs)):
                 return lhs == rhs
             case let (.delegate(lhs), .delegate(rhs)):
                 return lhs == rhs
@@ -87,7 +78,6 @@ struct HomeFeature {
 
     // MARK: - Dependency
 
-    @Dependency(\.userRepository) var userRepository
     @Dependency(\.authRepository) var authRepository
 
     // MARK: - Reducer
@@ -95,29 +85,6 @@ struct HomeFeature {
     var body: some Reducer<State, Action> {
         Reduce { state, action in
             switch action {
-            case .onAppear:
-                state.isLoading = true
-                return .run { [userRepository] send in
-                    do {
-                        let result = try await userRepository.getUserWithFriends()
-                        await send(.userWithFriendsLoaded(.success((result.user, result.friends))))
-                    } catch {
-                        await send(.userWithFriendsLoaded(.failure(error)))
-                    }
-                }
-
-            case let .userWithFriendsLoaded(.success((user, friends))):
-                state.isLoading = false
-                state.currentUser = user
-                state.friends = friends
-                state.error = nil
-                return .none
-
-            case let .userWithFriendsLoaded(.failure(error)):
-                state.isLoading = false
-                state.error = error.localizedDescription
-                return .none
-
             case .logoutButtonTapped:
                 state.showLogoutConfirm = true
                 return .none
@@ -150,16 +117,14 @@ struct HomeFeature {
             case .searchButtonTapped:
                 guard let user = state.currentUser else { return .none }
                 state.searchDestination = SearchFeature.State(
-                    currentUserId: user.id,
+                    currentUserId: user.profile.id,
                     currentUserFriendIds: user.friendIds
                 )
                 return .none
 
-            case let .searchDestination(.presented(.friendAdded(.success(newFriend)))):
-                // 친구 추가 성공 시 직접 friends 배열에 추가 (API 재호출 없음)
-                state.friends.append(newFriend)
-                // currentUser의 friendIds도 업데이트
-                state.currentUser?.friendIds.append(newFriend.id)
+            case .searchDestination(.presented(.friendAdded(.success(_)))):
+                // Firestore에 저장 → snapshot이 감지 → MainTabFeature에서 자동 업데이트
+                // 따라서 여기서는 아무것도 하지 않음
                 return .none
 
             case .searchDestination:
@@ -174,13 +139,27 @@ struct HomeFeature {
                 return .none
 
             case .chatConfirmed:
-                // TODO: 1:1 채팅 시작 로직 구현
+                guard let target = state.chatConfirmTarget,
+                      let currentUser = state.currentUser else { return .none }
                 state.chatConfirmTarget = nil
+                // 빈 ChatRoom 화면으로 이동
+                let chatRoomId = ChatRoom.directChatRoomId(uid1: currentUser.profile.id, uid2: target.id)
+                state.chatRoomDestination = ChatRoomFeature.State(
+                    chatRoomId: chatRoomId,
+                    currentUserId: currentUser.profile.id,
+                    otherUser: target
+                )
+                return .none
+
+            case .chatRoomDestination:
                 return .none
             }
         }
         .ifLet(\.$searchDestination, action: \.searchDestination) {
             SearchFeature()
+        }
+        .ifLet(\.$chatRoomDestination, action: \.chatRoomDestination) {
+            ChatRoomFeature()
         }
     }
 }

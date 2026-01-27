@@ -70,14 +70,14 @@ struct SearchView: View {
                 }
                 Spacer()
             } else {
-                List(store.searchResults, id: \.id) { user in
-                    let isMe = user.id == store.currentUserId
-                    let isFriend = store.currentUserFriendIds.contains(user.id)
-                    let isAdding = store.addingFriendId == user.id
+                List(store.searchResults, id: \.id) { profile in
+                    let isMe = profile.id == store.currentUserId
+                    let isFriend = store.currentUserFriendIds.contains(profile.id)
+                    let isAdding = store.addingFriendId == profile.id
                     let isDisabled = isMe || isFriend
 
                     UserRowComponent(
-                        user: user,
+                        profile: profile,
                         caption: captionFor(isMe: isMe, isFriend: isFriend)
                     ) {
                         if isAdding {
@@ -88,7 +88,7 @@ struct SearchView: View {
                                 systemName: "person.badge.plus",
                                 isDisabled: isDisabled,
                                 action: {
-                                    store.send(.addFriendButtonTapped(user))
+                                    store.send(.addFriendButtonTapped(profile))
                                 }
                             )
                         }

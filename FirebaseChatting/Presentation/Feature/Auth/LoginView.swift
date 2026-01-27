@@ -47,8 +47,6 @@ struct LoginView: View {
     LoginView(
         store: Store(initialState: AuthFeature.State()) {
             AuthFeature()
-        } withDependencies: {
-            $0.authRepository = .mock()
         }
     )
 }

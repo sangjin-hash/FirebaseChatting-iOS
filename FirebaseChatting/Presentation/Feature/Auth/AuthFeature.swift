@@ -89,7 +89,7 @@ struct AuthFeature {
             case let .googleLoginResponse(.success(user)):
                 state.isLoading = false
                 state.user = user
-                state.userId = user.id
+                state.userId = user.profile.id
                 state.authenticationState = .authenticated
                 state.mainTab = MainTabFeature.State()
                 return .none

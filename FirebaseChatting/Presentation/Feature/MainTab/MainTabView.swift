@@ -28,6 +28,12 @@ struct MainTabView: View {
             }
         }
         .tint(.bkText)
+        .onAppear {
+            store.send(.onAppear)
+        }
+        .onDisappear {
+            store.send(.onDisappear)
+        }
     }
 
     init(store: StoreOf<MainTabFeature>) {
