@@ -7,14 +7,23 @@
 
 import Foundation
 
-// MARK: - Get User With Friends Response
+// MARK: - Get Friends Response
 
-struct GetUserWithFriendsResponse: Decodable, Sendable {
+struct GetFriendsResponse: Decodable, Sendable {
     let result: Result
 
     struct Result: Decodable, Sendable {
-        let user: User
-        let friends: [User]
+        let profiles: [Profile]
+    }
+}
+
+// MARK: - Get User Batch Response
+
+struct GetUserBatchResponse: Decodable, Sendable {
+    let result: Result
+
+    struct Result: Decodable, Sendable {
+        let profiles: [String: Profile]
     }
 }
 
@@ -24,6 +33,6 @@ struct SearchUsersResponse: Decodable, Sendable {
     let result: Result
 
     struct Result: Decodable, Sendable {
-        let users: [User]
+        let users: [Profile]
     }
 }

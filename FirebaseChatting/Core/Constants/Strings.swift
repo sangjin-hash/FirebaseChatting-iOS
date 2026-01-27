@@ -17,6 +17,7 @@ enum Strings {
         static let loading = "로딩 중..."
         static let me = "나"
         static let noName = "이름 없음"
+        static let unknown = "알 수 없음"
     }
 
     // MARK: - Auth
@@ -55,5 +56,10 @@ enum Strings {
     // MARK: - Chat
     enum Chat {
         static let title = "채팅"
+        static let noChatRooms = "아직 채팅이 없습니다"
+        static let noChatRoomsDescription = "친구 목록에서 채팅을 시작해보세요"
+        static let leaveConfirmMessage = "채팅방을 나가시겠어요?"
+        static let leave = "나가기"
+        static let messageInputPlaceholder = "메시지를 입력하세요"
     }
 }

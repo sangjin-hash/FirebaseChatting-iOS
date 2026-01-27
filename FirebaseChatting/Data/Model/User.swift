@@ -8,12 +8,21 @@
 import Foundation
 
 struct User: Equatable, Sendable, Codable {
-    var id: String
-    var nickname: String?
-    var profilePhotoUrl: String?
+    var profile: Profile
     var friendIds: [String]
     var chatRooms: [String]
 
+    init(
+        profile: Profile,
+        friendIds: [String] = [],
+        chatRooms: [String] = []
+    ) {
+        self.profile = profile
+        self.friendIds = friendIds
+        self.chatRooms = chatRooms
+    }
+
+    /// 편의 생성자
     init(
         id: String,
         nickname: String? = nil,
@@ -21,9 +30,11 @@ struct User: Equatable, Sendable, Codable {
         friendIds: [String] = [],
         chatRooms: [String] = []
     ) {
-        self.id = id
-        self.nickname = nickname
-        self.profilePhotoUrl = profilePhotoUrl
+        self.profile = Profile(
+            id: id,
+            nickname: nickname,
+            profilePhotoUrl: profilePhotoUrl
+        )
         self.friendIds = friendIds
         self.chatRooms = chatRooms
     }

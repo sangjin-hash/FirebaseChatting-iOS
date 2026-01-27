@@ -7,14 +7,29 @@
 
 import Foundation
 
-// MARK: - Empty Request
+// MARK: - Get Friends Request
 
-struct EmptyDataRequest: Encodable, Sendable {
-    let data: EmptyData
-    struct EmptyData: Encodable, Sendable {}
+struct GetFriendsRequest: Encodable, Sendable {
+    let data: Data
+    struct Data: Encodable, Sendable {
+        let friendIds: [String]
+    }
 
-    init() {
-        self.data = EmptyData()
+    init(friendIds: [String]) {
+        self.data = Data(friendIds: friendIds)
+    }
+}
+
+// MARK: - Get User Batch Request
+
+struct GetUserBatchRequest: Encodable, Sendable {
+    let data: Data
+    struct Data: Encodable, Sendable {
+        let chatRooms: [String]
+    }
+
+    init(chatRooms: [String]) {
+        self.data = Data(chatRooms: chatRooms)
     }
 }
 
