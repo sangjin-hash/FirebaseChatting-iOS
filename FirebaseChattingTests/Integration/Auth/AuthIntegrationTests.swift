@@ -21,9 +21,7 @@ struct AuthIntegrationTests {
         let store = TestStore(initialState: AuthFeature.State()) {
             AuthFeature()
         } withDependencies: {
-            $0.authRepository = .mock(
-                checkAuthenticationState: { TestData.currentUser.id }
-            )
+            $0.authRepository.checkAuthenticationState = { TestData.currentUser.profile.id }
         }
 
         // When: onAppear triggers auth check
@@ -31,7 +29,7 @@ struct AuthIntegrationTests {
 
         // Then: Auth check completes with userId and MainTab is created
         await store.receive(\.authCheckCompleted) {
-            $0.userId = TestData.currentUser.id
+            $0.userId = TestData.currentUser.profile.id
             $0.authenticationState = .authenticated
             $0.mainTab = MainTabFeature.State()
         }
@@ -45,10 +43,8 @@ struct AuthIntegrationTests {
         let store = TestStore(initialState: AuthFeature.State()) {
             AuthFeature()
         } withDependencies: {
-            $0.authRepository = .mock(
-                checkAuthenticationState: { nil },
-                signInWithGoogle: { TestData.currentUser }
-            )
+            $0.authRepository.checkAuthenticationState = { nil }
+            $0.authRepository.signInWithGoogle = { TestData.currentUser }
         }
 
         // When: Check auth state first (no user)
@@ -68,7 +64,7 @@ struct AuthIntegrationTests {
         await store.receive(\.googleLoginResponse.success) {
             $0.isLoading = false
             $0.user = TestData.currentUser
-            $0.userId = TestData.currentUser.id
+            $0.userId = TestData.currentUser.profile.id
             $0.authenticationState = .authenticated
             $0.mainTab = MainTabFeature.State()
         }
@@ -81,7 +77,7 @@ struct AuthIntegrationTests {
         // Given: Authenticated state with MainTab
         var initialState = AuthFeature.State()
         initialState.authenticationState = .authenticated
-        initialState.userId = TestData.currentUser.id
+        initialState.userId = TestData.currentUser.profile.id
         initialState.user = TestData.currentUser
         initialState.mainTab = MainTabFeature.State()
 

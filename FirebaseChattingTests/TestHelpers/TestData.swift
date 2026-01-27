@@ -30,6 +30,14 @@ enum TestData {
         chatRooms: []
     )
 
+    static let currentUserWithNewFriend = User(
+        id: "current-user-123",
+        nickname: "Current User",
+        profilePhotoUrl: "https://example.com/current.jpg",
+        friendIds: ["friend-1", "friend-2", "search-1"],
+        chatRooms: ["chatroom-1"]
+    )
+
     static let friend1 = User(
         id: "friend-1",
         nickname: "Friend One",
@@ -72,6 +80,116 @@ enum TestData {
 
     static let friends: [User] = [friend1, friend2]
     static let searchResults: [User] = [searchResult1, searchResult2]
+
+    // MARK: - Profiles (API 응답용)
+
+    static let friend1Profile = Profile(
+        id: "friend-1",
+        nickname: "Friend One",
+        profilePhotoUrl: "https://example.com/friend1.jpg"
+    )
+
+    static let friend2Profile = Profile(
+        id: "friend-2",
+        nickname: "Friend Two",
+        profilePhotoUrl: "https://example.com/friend2.jpg"
+    )
+
+    static let searchResult1Profile = Profile(
+        id: "search-1",
+        nickname: "Search Result 1",
+        profilePhotoUrl: nil
+    )
+
+    static let searchResult2Profile = Profile(
+        id: "search-2",
+        nickname: "Search Result 2",
+        profilePhotoUrl: "https://example.com/search2.jpg"
+    )
+
+    static let strangerProfile = Profile(
+        id: "stranger-1",
+        nickname: "Stranger",
+        profilePhotoUrl: "https://example.com/stranger.jpg"
+    )
+
+    static let friendProfiles: [Profile] = [friend1Profile, friend2Profile]
+    static let searchResultProfiles: [Profile] = [searchResult1Profile, searchResult2Profile]
+
+    // MARK: - ChatRooms
+
+    static let chatRoom1 = ChatRoom(
+        id: "chatroom-1",
+        type: .direct,
+        lastMessage: "안녕하세요!",
+        lastMessageAt: Date(),
+        index: 5,
+        userHistory: ["current-user-123", "friend-1"],
+        activeUsers: ["current-user-123": Date(), "friend-1": Date()]
+    )
+
+    static let chatRoom2 = ChatRoom(
+        id: "chatroom-2",
+        type: .direct,
+        lastMessage: "오늘 시간 되세요?",
+        lastMessageAt: Date().addingTimeInterval(-3600),
+        index: 10,
+        userHistory: ["current-user-123", "friend-2"],
+        activeUsers: ["current-user-123": Date(), "friend-2": Date()]
+    )
+
+    // MARK: - Group ChatRooms
+
+    /// 3명 이상의 그룹 채팅방 (닉네임 외 N명 표시)
+    static let groupChatRoom1 = ChatRoom(
+        id: "G_group123",
+        type: .group,
+        lastMessage: "모임 시간 정해주세요~",
+        lastMessageAt: Date(),
+        index: 25,
+        userHistory: ["current-user-123", "friend-1", "friend-2"],
+        activeUsers: [
+            "current-user-123": Date(),
+            "friend-1": Date(),
+            "friend-2": Date()
+        ]
+    )
+
+    /// 2명의 그룹 채팅방 (닉네임만 표시)
+    static let groupChatRoom2TwoUsers = ChatRoom(
+        id: "G_group456",
+        type: .group,
+        lastMessage: "확인했습니다",
+        lastMessageAt: Date().addingTimeInterval(-1800),
+        index: 30,
+        userHistory: ["current-user-123", "friend-1"],
+        activeUsers: [
+            "current-user-123": Date(),
+            "friend-1": Date()
+        ]
+    )
+
+    static let chatRooms: [ChatRoom] = [chatRoom1, chatRoom2]
+    static let chatRoomsWithGroup: [ChatRoom] = [chatRoom1, chatRoom2, groupChatRoom1, groupChatRoom2TwoUsers]
+
+    // MARK: - ChatRoom Profiles (chatRoomId → Profile)
+
+    static let chatRoomProfiles: [String: Profile] = [
+        "chatroom-1": friend1Profile,
+        "chatroom-2": friend2Profile,
+        "G_group123": friend1Profile,
+        "G_group456": friend1Profile
+    ]
+
+    // MARK: - User with multiple chatRooms
+
+    static let currentUserWithMultipleChatRooms = User(
+        id: "current-user-123",
+        nickname: "Current User",
+        profilePhotoUrl: "https://example.com/current.jpg",
+        friendIds: ["friend-1", "friend-2"],
+        chatRooms: ["chatroom-1", "chatroom-2"]
+    )
 }
 
 // MARK: - Test Errors
