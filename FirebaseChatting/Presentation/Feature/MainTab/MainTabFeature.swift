@@ -153,8 +153,9 @@ struct MainTabFeature {
                 // chatRooms 변경 감지
                 if state.previousChatRoomIds != user.chatRooms {
                     state.previousChatRoomIds = user.chatRooms
-                    // ChatListFeature에 chatRoomIds 전달
-                    state.chatList.chatRoomIds = user.chatRooms
+
+                    // ChatListFeature에 Action dispatch로 chatRoomIds 전달 (reducer 실행)
+                    effects.append(.send(.chatList(.setChatRoomIds(user.chatRooms))))
 
                     if !user.chatRooms.isEmpty {
                         effects.append(

@@ -23,12 +23,6 @@ struct ChatListView: View {
                 }
             }
             .navigationTitle(Strings.Chat.title)
-            .onAppear {
-                store.send(.onAppear)
-            }
-            .onDisappear {
-                store.send(.onDisappear)
-            }
             .alert(Strings.Common.error, isPresented: .constant(store.error != nil)) {
                 Button(Strings.Common.confirm) {
                     // 에러 상태 초기화
@@ -81,24 +75,32 @@ struct ChatListView: View {
     }
 
     private var chatRoomList: some View {
-        ScrollView {
-            LazyVStack(spacing: 8) {
-                ForEach(store.chatRooms) { chatRoom in
-                    ChatRoomRowComponent(
-                        chatRoom: chatRoom,
-                        profile: store.chatRoomProfiles[chatRoom.id],
-                        displayName: store.state.displayName(for: chatRoom),
-                        onTap: {
-                            store.send(.chatRoomTapped(chatRoom))
-                        },
-                        onLeave: {
-                            store.send(.leaveSwipeAction(chatRoom))
-                        }
-                    )
+        List {
+            ForEach(store.chatRooms) { chatRoom in
+                ChatRoomRowComponent(
+                    chatRoom: chatRoom,
+                    profile: store.chatRoomProfiles[chatRoom.id],
+                    displayName: store.state.displayName(for: chatRoom),
+                    onTap: {
+                        store.send(.chatRoomTapped(chatRoom))
+                    },
+                    onLeave: {
+                        store.send(.leaveSwipeAction(chatRoom))
+                    }
+                )
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
+                .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                    Button(role: .destructive) {
+                        store.send(.leaveSwipeAction(chatRoom))
+                    } label: {
+                        Label(Strings.Chat.leave, systemImage: "door.left.hand.open")
+                    }
                 }
             }
-            .padding()
         }
+        .listStyle(.plain)
     }
 }
 

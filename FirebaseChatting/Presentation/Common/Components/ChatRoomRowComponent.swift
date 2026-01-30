@@ -78,11 +78,6 @@ struct ChatRoomRowComponent: View {
                 Label(Strings.Chat.leave, systemImage: "rectangle.portrait.and.arrow.right")
             }
         }
-        .swipeActions(edge: .trailing) {
-            Button(role: .destructive, action: onLeave) {
-                Label(Strings.Chat.leave, systemImage: "rectangle.portrait.and.arrow.right")
-            }
-        }
     }
 
     // MARK: - Subviews

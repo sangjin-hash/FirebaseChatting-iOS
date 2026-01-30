@@ -29,6 +29,11 @@ struct ChatListFeature {
         /// 채팅방 표시 이름
         func displayName(for chatRoom: ChatRoom) -> String {
             if let profile = chatRoomProfiles[chatRoom.id] {
+                // 프로필이 자기 자신이면 "대화 상대 없음" 표시
+                if profile.id == currentUserId {
+                    return Strings.Chat.noParticipant
+                }
+
                 if chatRoom.type == .group {
                     // 1:N 채팅방의 경우 "닉네임 외 N명" 표시
                     let otherCount = chatRoom.activeUsers.count - 1
@@ -97,7 +102,7 @@ struct ChatListFeature {
 
     // MARK: - Dependency
 
-    @Dependency(\.chatRoomRepository) var chatRoomRepository
+    @Dependency(\.chatListRepository) var chatListRepository
 
     // MARK: - Reducer
 
@@ -105,20 +110,12 @@ struct ChatListFeature {
         Reduce { state, action in
             switch action {
             case .onAppear:
-                // chatRoomIds가 설정되어 있으면 관찰 시작
-                guard !state.chatRoomIds.isEmpty else { return .none }
-                state.isLoading = true
-                let chatRoomIds = state.chatRoomIds
-
-                return .run { [chatRoomRepository] send in
-                    for await chatRooms in chatRoomRepository.observeChatRooms(chatRoomIds) {
-                        await send(.chatRoomsUpdated(chatRooms))
-                    }
-                }
-                .cancellable(id: "observeChatRooms")
+                // 탭 전환 시에는 스트림 유지 (setChatRoomIds에서 관리)
+                return .none
 
             case .onDisappear:
-                return .cancel(id: "observeChatRooms")
+                // 탭 전환 시에는 스트림 유지
+                return .none
 
             case let .setCurrentUserId(userId):
                 state.currentUserId = userId
@@ -132,8 +129,8 @@ struct ChatListFeature {
                     return .cancel(id: "observeChatRooms")
                 }
                 state.isLoading = true
-                return .run { [chatRoomRepository] send in
-                    for await chatRooms in chatRoomRepository.observeChatRooms(chatRoomIds) {
+                return .run { [chatListRepository] send in
+                    for await chatRooms in chatListRepository.observeChatRooms(chatRoomIds) {
                         await send(.chatRoomsUpdated(chatRooms))
                     }
                 }
@@ -151,7 +148,19 @@ struct ChatListFeature {
                     currentUserId: state.currentUserId,
                     otherUser: state.chatRoomProfiles[chatRoom.id]
                 )
-                return .none
+                // 채팅방 진입 시 chatRooms 스트림 해제
+                return .cancel(id: "observeChatRooms")
+
+            case .chatRoomDestination(.dismiss):
+                // 채팅방에서 나갈 때 chatRooms 스트림 재시작
+                guard !state.chatRoomIds.isEmpty else { return .none }
+                let chatRoomIds = state.chatRoomIds
+                return .run { [chatListRepository] send in
+                    for await chatRooms in chatListRepository.observeChatRooms(chatRoomIds) {
+                        await send(.chatRoomsUpdated(chatRooms))
+                    }
+                }
+                .cancellable(id: "observeChatRooms")
 
             case .chatRoomDestination:
                 return .none
@@ -170,9 +179,9 @@ struct ChatListFeature {
                 let userId = state.currentUserId
                 state.leaveConfirmTarget = nil
 
-                return .run { [chatRoomRepository] send in
+                return .run { [chatListRepository] send in
                     do {
-                        try await chatRoomRepository.leaveChatRoom(chatRoomId, userId)
+                        try await chatListRepository.leaveChatRoom(chatRoomId, userId)
                         await send(.leaveCompleted(.success(chatRoomId)))
                     } catch {
                         await send(.leaveCompleted(.failure(error)))

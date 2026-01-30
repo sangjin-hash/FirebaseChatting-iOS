@@ -61,5 +61,6 @@ enum Strings {
         static let leaveConfirmMessage = "채팅방을 나가시겠어요?"
         static let leave = "나가기"
         static let messageInputPlaceholder = "메시지를 입력하세요"
+        static let noParticipant = "대화 상대 없음"
     }
 }
