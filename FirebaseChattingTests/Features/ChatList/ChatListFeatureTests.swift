@@ -61,10 +61,10 @@ struct ChatListFeatureTests {
     }
 
     @Test
-    func test_onAppear_withChatRoomIds_startsChatRoomsObserver() async {
-        // Given
+    func test_onAppear_doesNothing() async {
+        // Given - onAppear는 탭 전환 시 스트림 유지를 위해 아무것도 하지 않음
+        // 스트림 관리는 setChatRoomIds에서 담당
         let chatRoomIds = ["chatroom-1", "chatroom-2"]
-        let chatRooms = TestData.chatRooms
 
         var state = ChatListFeature.State()
         state.currentUserId = "user-123"
@@ -72,27 +72,10 @@ struct ChatListFeatureTests {
 
         let store = TestStore(initialState: state) {
             ChatListFeature()
-        } withDependencies: {
-            $0.chatRoomRepository.observeChatRooms = { ids in
-                #expect(ids == chatRoomIds)
-                return AsyncStream { continuation in
-                    continuation.yield(chatRooms)
-                    continuation.finish()
-                }
-            }
         }
 
-        // When
-        await store.send(.onAppear) {
-            $0.isLoading = true
-        }
-
-        // Then - verify we receive chatRooms update
-        await store.receive(\.chatRoomsUpdated) {
-            $0.chatRooms = chatRooms
-            $0.isLoading = false
-            $0.error = nil
-        }
+        // When & Then - onAppear should do nothing
+        await store.send(.onAppear)
     }
 
     // MARK: - chatRoomsUpdated Tests
@@ -122,7 +105,7 @@ struct ChatListFeatureTests {
     // MARK: - chatRoomTapped Tests
 
     @Test
-    func test_chatRoomTapped_navigatesToChatRoom() async {
+    func test_chatRoomTapped_navigatesToChatRoomAndCancelsObserver() async {
         // Given
         var state = ChatListFeature.State()
         state.currentUserId = "user-123"
@@ -134,7 +117,7 @@ struct ChatListFeatureTests {
 
         let chatRoom = TestData.chatRooms[0]
 
-        // When
+        // When - chatRoomTapped should cancel observeChatRooms
         await store.send(.chatRoomTapped(chatRoom)) {
             // Then
             $0.chatRoomDestination = ChatRoomFeature.State(
@@ -142,6 +125,7 @@ struct ChatListFeatureTests {
                 currentUserId: "user-123"
             )
         }
+        // Note: cancel effect는 TestStore에서 자동으로 처리됨
     }
 
     // MARK: - Leave Swipe Action Tests
@@ -195,7 +179,7 @@ struct ChatListFeatureTests {
         let store = TestStore(initialState: state) {
             ChatListFeature()
         } withDependencies: {
-            $0.chatRoomRepository.leaveChatRoom = { _, _ in }
+            $0.chatListRepository.leaveChatRoom = { _, _ in }
         }
 
         // When
@@ -245,8 +229,8 @@ struct ChatListFeatureTests {
     // MARK: - onDisappear Tests
 
     @Test
-    func test_onDisappear_cancelsObserver() async {
-        // Given
+    func test_onDisappear_doesNothing() async {
+        // Given - onDisappear는 탭 전환 시 스트림 유지를 위해 아무것도 하지 않음
         var state = ChatListFeature.State()
         state.currentUserId = "user-123"
 
@@ -254,7 +238,7 @@ struct ChatListFeatureTests {
             ChatListFeature()
         }
 
-        // When & Then - onDisappear should cancel the observer
+        // When & Then - onDisappear should do nothing
         await store.send(.onDisappear)
     }
 
@@ -294,7 +278,7 @@ struct ChatListFeatureTests {
         let store = TestStore(initialState: state) {
             ChatListFeature()
         } withDependencies: {
-            $0.chatRoomRepository.observeChatRooms = { ids in
+            $0.chatListRepository.observeChatRooms = { ids in
                 #expect(ids == chatRoomIds)
                 return AsyncStream { continuation in
                     continuation.yield(chatRooms)
@@ -331,7 +315,7 @@ struct ChatListFeatureTests {
         let store = TestStore(initialState: state) {
             ChatListFeature()
         } withDependencies: {
-            $0.chatRoomRepository.observeChatRooms = { ids in
+            $0.chatListRepository.observeChatRooms = { ids in
                 AsyncStream { continuation in
                     if ids == newIds {
                         continuation.yield(newRooms)
@@ -411,6 +395,25 @@ struct ChatListFeatureTests {
         #expect(state.displayName(for: chatRoom) == Strings.Common.unknown)
     }
 
+    @Test
+    func test_displayName_whenProfileIsMyself_showsNoParticipant() {
+        // Given - 상대방이 나간 경우 프로필이 자기 자신일 때
+        var state = ChatListFeature.State()
+        state.currentUserId = "current-user-123"
+        state.chatRoomProfiles = [
+            "chatroom-1": Profile(id: "current-user-123", nickname: "나")
+        ]
+
+        let chatRoom = ChatRoom(
+            id: "chatroom-1",
+            type: .direct,
+            index: 10
+        )
+
+        // When & Then - "대화 상대 없음" 표시
+        #expect(state.displayName(for: chatRoom) == Strings.Chat.noParticipant)
+    }
+
     // MARK: - chatRoomTapped with Profile Tests
 
     @Test
@@ -426,7 +429,7 @@ struct ChatListFeatureTests {
             ChatListFeature()
         }
 
-        // When
+        // When - chatRoomTapped should cancel observeChatRooms
         await store.send(.chatRoomTapped(TestData.chatRoom1)) {
             // Then - otherUser should be set
             $0.chatRoomDestination = ChatRoomFeature.State(
@@ -435,6 +438,71 @@ struct ChatListFeatureTests {
                 otherUser: profile
             )
         }
+    }
+
+    // MARK: - chatRoomDestination dismiss Tests
+
+    @Test
+    func test_chatRoomDestination_dismiss_restartsObserver() async {
+        // Given - 채팅방에 진입한 상태
+        let chatRoomIds = ["chatroom-1", "chatroom-2"]
+        let chatRooms = TestData.chatRooms
+
+        var state = ChatListFeature.State()
+        state.currentUserId = "user-123"
+        state.chatRoomIds = chatRoomIds
+        state.chatRooms = chatRooms
+        state.chatRoomDestination = ChatRoomFeature.State(
+            chatRoomId: "chatroom-1",
+            currentUserId: "user-123"
+        )
+
+        let store = TestStore(initialState: state) {
+            ChatListFeature()
+        } withDependencies: {
+            $0.chatListRepository.observeChatRooms = { ids in
+                #expect(ids == chatRoomIds)
+                return AsyncStream { continuation in
+                    continuation.yield(chatRooms)
+                    continuation.finish()
+                }
+            }
+        }
+
+        // When - 채팅방에서 나감 (dismiss)
+        await store.send(.chatRoomDestination(.dismiss)) {
+            $0.chatRoomDestination = nil
+        }
+
+        // Then - observeChatRooms 재시작
+        await store.receive(\.chatRoomsUpdated) {
+            $0.chatRooms = chatRooms
+            $0.isLoading = false
+            $0.error = nil
+        }
+    }
+
+    @Test
+    func test_chatRoomDestination_dismiss_withEmptyChatRoomIds_doesNothing() async {
+        // Given - chatRoomIds가 비어있는 상태
+        var state = ChatListFeature.State()
+        state.currentUserId = "user-123"
+        state.chatRoomIds = []
+        state.chatRoomDestination = ChatRoomFeature.State(
+            chatRoomId: "chatroom-1",
+            currentUserId: "user-123"
+        )
+
+        let store = TestStore(initialState: state) {
+            ChatListFeature()
+        }
+
+        // When - 채팅방에서 나감 (dismiss)
+        await store.send(.chatRoomDestination(.dismiss)) {
+            $0.chatRoomDestination = nil
+        }
+
+        // Then - chatRoomIds가 비어있으면 아무것도 하지 않음
     }
 
     // MARK: - chatRoomsUpdated with Empty List Tests

@@ -181,6 +181,84 @@ enum TestData {
         "G_group456": friend1Profile
     ]
 
+    // MARK: - Messages
+
+    static let message1 = Message(
+        id: "msg-1",
+        index: 1,
+        senderId: "current-user-123",
+        type: .text,
+        content: "안녕하세요!",
+        createdAt: Date().addingTimeInterval(-3600)
+    )
+
+    static let message2 = Message(
+        id: "msg-2",
+        index: 2,
+        senderId: "friend-1",
+        type: .text,
+        content: "반갑습니다!",
+        createdAt: Date().addingTimeInterval(-1800)
+    )
+
+    static let message3 = Message(
+        id: "msg-3",
+        index: 3,
+        senderId: "current-user-123",
+        type: .text,
+        content: "오늘 날씨가 좋네요",
+        createdAt: Date()
+    )
+
+    static let systemMessage = Message(
+        id: "msg-system-1",
+        index: 10,
+        senderId: "system",
+        type: .system,
+        content: "Friend One님이 나가셨습니다",
+        createdAt: Date()
+    )
+
+    static let messages: [Message] = [message1, message2, message3]
+
+    static let olderMessages: [Message] = [
+        Message(
+            id: "msg-old-1",
+            index: -2,
+            senderId: "friend-1",
+            type: .text,
+            content: "이전 메시지 1",
+            createdAt: Date().addingTimeInterval(-7200)
+        ),
+        Message(
+            id: "msg-old-2",
+            index: -1,
+            senderId: "current-user-123",
+            type: .text,
+            content: "이전 메시지 2",
+            createdAt: Date().addingTimeInterval(-5400)
+        )
+    ]
+
+    static let newerMessages: [Message] = [
+        Message(
+            id: "msg-new-1",
+            index: 4,
+            senderId: "friend-1",
+            type: .text,
+            content: "최신 메시지 1",
+            createdAt: Date().addingTimeInterval(1800)
+        ),
+        Message(
+            id: "msg-new-2",
+            index: 5,
+            senderId: "current-user-123",
+            type: .text,
+            content: "최신 메시지 2",
+            createdAt: Date().addingTimeInterval(3600)
+        )
+    ]
+
     // MARK: - User with multiple chatRooms
 
     static let currentUserWithMultipleChatRooms = User(

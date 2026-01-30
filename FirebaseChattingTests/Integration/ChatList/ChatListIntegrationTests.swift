@@ -23,12 +23,11 @@ struct ChatListIntegrationTests {
 
         var state = ChatListFeature.State()
         state.currentUserId = "user-123"
-        state.chatRoomIds = chatRoomIds
 
         let store = TestStore(initialState: state) {
             ChatListFeature()
         } withDependencies: {
-            $0.chatRoomRepository.observeChatRooms = { ids in
+            $0.chatListRepository.observeChatRooms = { ids in
                 #expect(ids == chatRoomIds)
                 return AsyncStream { continuation in
                     continuation.yield(chatRooms)
@@ -37,8 +36,9 @@ struct ChatListIntegrationTests {
             }
         }
 
-        // When - onAppear starts loading
-        await store.send(.onAppear) {
+        // When - setChatRoomIds starts loading (MainTabFeature에서 호출)
+        await store.send(.setChatRoomIds(chatRoomIds)) {
+            $0.chatRoomIds = chatRoomIds
             $0.isLoading = true
         }
 
@@ -49,7 +49,7 @@ struct ChatListIntegrationTests {
             $0.error = nil
         }
 
-        // When - user taps a chat room
+        // When - user taps a chat room (cancels observer)
         await store.send(.chatRoomTapped(chatRooms[0])) {
             $0.chatRoomDestination = ChatRoomFeature.State(
                 chatRoomId: chatRooms[0].id,
@@ -71,7 +71,7 @@ struct ChatListIntegrationTests {
         let store = TestStore(initialState: state) {
             ChatListFeature()
         } withDependencies: {
-            $0.chatRoomRepository.leaveChatRoom = { roomId, userId in
+            $0.chatListRepository.leaveChatRoom = { roomId, userId in
                 #expect(roomId == chatRoom.id)
                 #expect(userId == "user-123")
                 leaveCalled = true
@@ -103,14 +103,13 @@ struct ChatListIntegrationTests {
         let chatRoomIds = ["chatroom-1"]
         var state = ChatListFeature.State()
         state.currentUserId = "user-123"
-        state.chatRoomIds = chatRoomIds
 
         let initialRooms = [TestData.chatRoom1]
 
         let store = TestStore(initialState: state) {
             ChatListFeature()
         } withDependencies: {
-            $0.chatRoomRepository.observeChatRooms = { _ in
+            $0.chatListRepository.observeChatRooms = { _ in
                 AsyncStream { continuation in
                     continuation.yield(initialRooms)
                     continuation.finish()
@@ -118,8 +117,9 @@ struct ChatListIntegrationTests {
             }
         }
 
-        // When
-        await store.send(.onAppear) {
+        // When - setChatRoomIds starts observing (MainTabFeature에서 호출)
+        await store.send(.setChatRoomIds(chatRoomIds)) {
+            $0.chatRoomIds = chatRoomIds
             $0.isLoading = true
         }
 
@@ -189,7 +189,7 @@ struct ChatListIntegrationTests {
         let store = TestStore(initialState: state) {
             ChatListFeature()
         } withDependencies: {
-            $0.chatRoomRepository.observeChatRooms = { ids in
+            $0.chatListRepository.observeChatRooms = { ids in
                 observeCalledWithIds = ids
                 return AsyncStream { continuation in
                     continuation.yield(chatRooms)
@@ -235,7 +235,7 @@ struct ChatListIntegrationTests {
         let store = TestStore(initialState: state) {
             ChatListFeature()
         } withDependencies: {
-            $0.chatRoomRepository.observeChatRooms = { ids in
+            $0.chatListRepository.observeChatRooms = { ids in
                 AsyncStream { continuation in
                     if ids == newIds {
                         continuation.yield(allRooms)
@@ -259,6 +259,56 @@ struct ChatListIntegrationTests {
         }
 
         #expect(store.state.chatRooms.count == 2)
+    }
+
+    // MARK: - ChatRoom Navigation Flow Tests
+
+    @Test
+    func test_fullFlow_enterAndExitChatRoom_managesObserverCorrectly() async {
+        // Given
+        let chatRoomIds = ["chatroom-1", "chatroom-2"]
+        let chatRooms = TestData.chatRooms
+
+        var state = ChatListFeature.State()
+        state.currentUserId = "user-123"
+        state.chatRoomIds = chatRoomIds
+        state.chatRooms = chatRooms
+
+        var observeCallCount = 0
+
+        let store = TestStore(initialState: state) {
+            ChatListFeature()
+        } withDependencies: {
+            $0.chatListRepository.observeChatRooms = { ids in
+                observeCallCount += 1
+                return AsyncStream { continuation in
+                    continuation.yield(chatRooms)
+                    continuation.finish()
+                }
+            }
+        }
+
+        // When - 채팅방 진입 (observer cancel)
+        await store.send(.chatRoomTapped(chatRooms[0])) {
+            $0.chatRoomDestination = ChatRoomFeature.State(
+                chatRoomId: chatRooms[0].id,
+                currentUserId: "user-123"
+            )
+        }
+
+        // When - 채팅방 나감 (observer restart)
+        await store.send(.chatRoomDestination(.dismiss)) {
+            $0.chatRoomDestination = nil
+        }
+
+        // Then - observer가 다시 시작됨
+        await store.receive(\.chatRoomsUpdated) {
+            $0.chatRooms = chatRooms
+            $0.isLoading = false
+            $0.error = nil
+        }
+
+        #expect(observeCallCount == 1)
     }
 
     // MARK: - Group ChatRoom Display Name Integration Test

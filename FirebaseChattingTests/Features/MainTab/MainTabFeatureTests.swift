@@ -162,7 +162,7 @@ struct MainTabFeatureTests {
             }
             $0.userRepository.getFriends = { _ in TestData.friendProfiles }
             $0.userRepository.getUserBatch = { _ in [:] }
-            $0.chatRoomRepository.observeChatRooms = { _ in
+            $0.chatListRepository.observeChatRooms = { _ in
                 AsyncStream { $0.finish() }
             }
         }
@@ -224,7 +224,7 @@ struct MainTabFeatureTests {
                 getUserBatchCalled = true
                 return [:]
             }
-            $0.chatRoomRepository.observeChatRooms = { _ in
+            $0.chatListRepository.observeChatRooms = { _ in
                 AsyncStream { $0.finish() }
             }
         }
@@ -238,7 +238,6 @@ struct MainTabFeatureTests {
             $0.chatList.currentUserId = TestData.currentUser.profile.id
             $0.previousFriendIds = TestData.currentUser.friendIds
             $0.previousChatRoomIds = TestData.currentUser.chatRooms
-            $0.chatList.chatRoomIds = TestData.currentUser.chatRooms
         }
 
         // Wait for effects to complete
@@ -392,7 +391,7 @@ struct MainTabFeatureTests {
             MainTabFeature()
         } withDependencies: {
             $0.userRepository.getUserBatch = { _ in TestData.chatRoomProfiles }
-            $0.chatRoomRepository.observeChatRooms = { _ in
+            $0.chatListRepository.observeChatRooms = { _ in
                 AsyncStream { $0.finish() }
             }
         }
@@ -403,8 +402,12 @@ struct MainTabFeatureTests {
             $0.home.currentUser = TestData.currentUserWithMultipleChatRooms
             $0.chatList.currentUserId = TestData.currentUserWithMultipleChatRooms.profile.id
             $0.previousChatRoomIds = TestData.currentUserWithMultipleChatRooms.chatRooms
-            // setChatRoomIds should be sent to chatList
+        }
+
+        // Then - receive setChatRoomIds action
+        await store.receive(\.chatList.setChatRoomIds) {
             $0.chatList.chatRoomIds = TestData.currentUserWithMultipleChatRooms.chatRooms
+            $0.chatList.isLoading = true
         }
 
         // Then - chatRoomProfilesLoaded should be received
@@ -429,7 +432,7 @@ struct MainTabFeatureTests {
                 getUserBatchCalledWith = ids
                 return TestData.chatRoomProfiles
             }
-            $0.chatRoomRepository.observeChatRooms = { _ in
+            $0.chatListRepository.observeChatRooms = { _ in
                 AsyncStream { $0.finish() }
             }
         }
@@ -440,7 +443,12 @@ struct MainTabFeatureTests {
             $0.home.currentUser = TestData.currentUserWithMultipleChatRooms
             $0.chatList.currentUserId = TestData.currentUserWithMultipleChatRooms.profile.id
             $0.previousChatRoomIds = TestData.currentUserWithMultipleChatRooms.chatRooms
+        }
+
+        // Then - receive setChatRoomIds action
+        await store.receive(\.chatList.setChatRoomIds) {
             $0.chatList.chatRoomIds = TestData.currentUserWithMultipleChatRooms.chatRooms
+            $0.chatList.isLoading = true
         }
 
         // Then - chatRoomProfilesLoaded should be received
@@ -495,6 +503,10 @@ struct MainTabFeatureTests {
             $0.chatList.currentUserId = TestData.currentUserWithNoFriends.profile.id
             $0.previousChatRoomIds = []
             $0.chatList.chatRoomProfiles = [:]
+        }
+
+        // Then - receive setChatRoomIds action
+        await store.receive(\.chatList.setChatRoomIds) {
             $0.chatList.chatRoomIds = []
         }
     }
@@ -517,9 +529,12 @@ struct MainTabFeatureTests {
             $0.home.currentUser = TestData.currentUserWithNoFriends
             $0.chatList.currentUserId = TestData.currentUserWithNoFriends.profile.id
             $0.previousChatRoomIds = []
-            // chatList should receive empty chatRoomIds
-            $0.chatList.chatRoomIds = []
             $0.chatList.chatRoomProfiles = [:]
+        }
+
+        // Then - receive setChatRoomIds action
+        await store.receive(\.chatList.setChatRoomIds) {
+            $0.chatList.chatRoomIds = []
         }
     }
 
@@ -568,7 +583,7 @@ struct MainTabFeatureTests {
                 getUserBatchCalled = true
                 return TestData.chatRoomProfiles
             }
-            $0.chatRoomRepository.observeChatRooms = { _ in
+            $0.chatListRepository.observeChatRooms = { _ in
                 AsyncStream { $0.finish() }
             }
         }
@@ -580,7 +595,6 @@ struct MainTabFeatureTests {
             $0.home.currentUser = TestData.currentUserWithMultipleChatRooms
             $0.chatList.currentUserId = TestData.currentUserWithMultipleChatRooms.profile.id
             $0.previousChatRoomIds = TestData.currentUserWithMultipleChatRooms.chatRooms
-            $0.chatList.chatRoomIds = TestData.currentUserWithMultipleChatRooms.chatRooms
         }
 
         // Wait for async
