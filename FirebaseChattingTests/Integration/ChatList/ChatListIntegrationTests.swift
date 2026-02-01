@@ -53,7 +53,9 @@ struct ChatListIntegrationTests {
         await store.send(.chatRoomTapped(chatRooms[0])) {
             $0.chatRoomDestination = ChatRoomFeature.State(
                 chatRoomId: chatRooms[0].id,
-                currentUserId: "user-123"
+                currentUserId: "user-123",
+                chatRoomType: chatRooms[0].type,
+                activeUserIds: Array(chatRooms[0].activeUsers.keys)
             )
         }
     }
@@ -292,7 +294,9 @@ struct ChatListIntegrationTests {
         await store.send(.chatRoomTapped(chatRooms[0])) {
             $0.chatRoomDestination = ChatRoomFeature.State(
                 chatRoomId: chatRooms[0].id,
-                currentUserId: "user-123"
+                currentUserId: "user-123",
+                chatRoomType: chatRooms[0].type,
+                activeUserIds: Array(chatRooms[0].activeUsers.keys)
             )
         }
 
@@ -301,12 +305,8 @@ struct ChatListIntegrationTests {
             $0.chatRoomDestination = nil
         }
 
-        // Then - observer가 다시 시작됨
-        await store.receive(\.chatRoomsUpdated) {
-            $0.chatRooms = chatRooms
-            $0.isLoading = false
-            $0.error = nil
-        }
+        // Then - observer가 다시 시작됨 (chatRooms가 동일하므로 상태 변경 없음)
+        await store.receive(\.chatRoomsUpdated)
 
         #expect(observeCallCount == 1)
     }

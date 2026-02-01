@@ -172,6 +172,25 @@ enum TestData {
     static let chatRooms: [ChatRoom] = [chatRoom1, chatRoom2]
     static let chatRoomsWithGroup: [ChatRoom] = [chatRoom1, chatRoom2, groupChatRoom1, groupChatRoom2TwoUsers]
 
+    // MARK: - Additional Friends for Group Chat Testing
+
+    static let friend3Profile = Profile(
+        id: "friend-3",
+        nickname: "Friend Three",
+        profilePhotoUrl: "https://example.com/friend3.jpg"
+    )
+
+    static let friend4Profile = Profile(
+        id: "friend-4",
+        nickname: "Friend Four",
+        profilePhotoUrl: nil
+    )
+
+    static let allFriends: [Profile] = [friend1Profile, friend2Profile, friend3Profile, friend4Profile]
+
+    /// 초대 가능한 친구 (그룹 채팅방에 없는 친구)
+    static let invitableFriends: [Profile] = [friend3Profile, friend4Profile]
+
     // MARK: - ChatRoom Profiles (chatRoomId → Profile)
 
     static let chatRoomProfiles: [String: Profile] = [
@@ -217,6 +236,18 @@ enum TestData {
         type: .system,
         content: "Friend One님이 나가셨습니다",
         createdAt: Date()
+    )
+
+    /// 나간 사용자 정보를 포함한 시스템 메시지
+    static let systemMessageWithLeftUser = Message(
+        id: "msg-system-2",
+        index: 11,
+        senderId: "system",
+        type: .system,
+        content: "Friend Two님이 나갔습니다",
+        createdAt: Date(),
+        leftUserId: "friend-2",
+        leftUserNickname: "Friend Two"
     )
 
     static let messages: [Message] = [message1, message2, message3]

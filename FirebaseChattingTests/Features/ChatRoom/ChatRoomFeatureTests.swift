@@ -534,4 +534,365 @@ struct ChatRoomFeatureTests {
             $0.isLoading = false
         }
     }
+
+    // MARK: - Group Chat Tests
+
+    @Test
+    func test_isGroupChat_returnsTrueForGroupType() {
+        // Given
+        let state = ChatRoomFeature.State(
+            chatRoomId: "G_test123",
+            currentUserId: "current-user-123",
+            chatRoomType: .group
+        )
+
+        // Then
+        #expect(state.isGroupChat == true)
+    }
+
+    @Test
+    func test_isGroupChat_returnsFalseForDirectType() {
+        // Given
+        let state = ChatRoomFeature.State(
+            chatRoomId: "D_user1_user2",
+            currentUserId: "current-user-123",
+            chatRoomType: .direct
+        )
+
+        // Then
+        #expect(state.isGroupChat == false)
+    }
+
+    @Test
+    func test_invitableFriends_filtersActiveUsers() {
+        // Given
+        let state = ChatRoomFeature.State(
+            chatRoomId: "G_test123",
+            currentUserId: "current-user-123",
+            chatRoomType: .group,
+            activeUserIds: ["current-user-123", "friend-1", "friend-2"],
+            allFriends: TestData.allFriends
+        )
+
+        // Then - friend-1 and friend-2 are already in chat room
+        let invitableFriends = state.invitableFriends
+        #expect(invitableFriends.contains { $0.id == "friend-1" } == false)
+        #expect(invitableFriends.contains { $0.id == "friend-2" } == false)
+        #expect(invitableFriends.contains { $0.id == "friend-3" } == true)
+        #expect(invitableFriends.contains { $0.id == "friend-4" } == true)
+    }
+
+    // MARK: - inviteFriendsButtonTapped Tests
+
+    @Test
+    func test_inviteFriendsButtonTapped_presentsSheet_forGroupChat() async {
+        // Given
+        let state = ChatRoomFeature.State(
+            chatRoomId: "G_test123",
+            currentUserId: "current-user-123",
+            chatRoomType: .group,
+            activeUserIds: ["current-user-123", "friend-1", "friend-2"],
+            allFriends: TestData.allFriends
+        )
+
+        let store = TestStore(initialState: state) {
+            ChatRoomFeature()
+        }
+
+        // When
+        await store.send(.inviteFriendsButtonTapped) {
+            // Then
+            $0.inviteFriendsDestination = InviteFriendsFeature.State(
+                friends: state.invitableFriends
+            )
+        }
+    }
+
+    @Test
+    func test_inviteFriendsButtonTapped_doesNothing_forDirectChat() async {
+        // Given
+        let state = ChatRoomFeature.State(
+            chatRoomId: "D_user1_user2",
+            currentUserId: "current-user-123",
+            chatRoomType: .direct
+        )
+
+        let store = TestStore(initialState: state) {
+            ChatRoomFeature()
+        }
+
+        // When & Then - should not change state
+        await store.send(.inviteFriendsButtonTapped)
+    }
+
+    // MARK: - inviteFriendsDestination Tests
+
+    @Test
+    func test_inviteFriendsDestination_friendsInvited_invitesAndSendsSystemMessage() async {
+        // Given
+        var state = ChatRoomFeature.State(
+            chatRoomId: "G_test123",
+            currentUserId: "current-user-123",
+            chatRoomType: .group,
+            activeUserIds: ["current-user-123", "friend-1", "friend-2"],
+            allFriends: TestData.allFriends
+        )
+        state.inviteFriendsDestination = InviteFriendsFeature.State(
+            friends: TestData.invitableFriends
+        )
+
+        var invitedUserIds: [String]?
+        var sentSystemMessages: [String] = []
+
+        let store = TestStore(initialState: state) {
+            ChatRoomFeature()
+        } withDependencies: {
+            $0.chatRoomRepository.inviteToGroupChat = { _, userIds in
+                invitedUserIds = userIds
+            }
+            $0.chatRoomRepository.sendSystemMessage = { _, message in
+                sentSystemMessages.append(message)
+            }
+        }
+
+        // When
+        await store.send(.inviteFriendsDestination(.presented(.delegate(.friendsInvited(["friend-3", "friend-4"]))))) {
+            $0.inviteFriendsDestination = nil
+            $0.isInviting = true
+        }
+
+        // Then
+        await store.receive(\.inviteCompleted.success) {
+            $0.isInviting = false
+            // Bug fix: 초대한 친구들이 activeUserIds에 추가됨
+            $0.activeUserIds.append(contentsOf: ["friend-3", "friend-4"])
+        }
+
+        #expect(invitedUserIds?.contains("friend-3") == true)
+        #expect(invitedUserIds?.contains("friend-4") == true)
+        #expect(sentSystemMessages.count == 2)
+    }
+
+    @Test
+    func test_inviteCompleted_failure_setsError() async {
+        // Given
+        var state = ChatRoomFeature.State(
+            chatRoomId: "G_test123",
+            currentUserId: "current-user-123",
+            chatRoomType: .group
+        )
+        state.isInviting = true
+
+        let store = TestStore(initialState: state) {
+            ChatRoomFeature()
+        }
+
+        // When
+        await store.send(.inviteCompleted(.failure(TestError.networkError))) {
+            // Then
+            $0.isInviting = false
+            $0.error = TestError.networkError.localizedDescription
+        }
+    }
+
+    // MARK: - Reinvite User Tests
+
+    @Test
+    func test_reinviteUserTapped_setsConfirmTarget() async {
+        // Given
+        let state = ChatRoomFeature.State(
+            chatRoomId: "G_test123",
+            currentUserId: "current-user-123",
+            chatRoomType: .group
+        )
+
+        let store = TestStore(initialState: state) {
+            ChatRoomFeature()
+        }
+
+        // When
+        await store.send(.reinviteUserTapped(userId: "friend-2", nickname: "Friend Two")) {
+            // Then
+            $0.reinviteConfirmTarget = ReinviteTarget(userId: "friend-2", nickname: "Friend Two")
+        }
+    }
+
+    @Test
+    func test_reinviteConfirmDismissed_clearsTarget() async {
+        // Given
+        var state = ChatRoomFeature.State(
+            chatRoomId: "G_test123",
+            currentUserId: "current-user-123",
+            chatRoomType: .group
+        )
+        state.reinviteConfirmTarget = ReinviteTarget(userId: "friend-2", nickname: "Friend Two")
+
+        let store = TestStore(initialState: state) {
+            ChatRoomFeature()
+        }
+
+        // When
+        await store.send(.reinviteConfirmDismissed) {
+            // Then
+            $0.reinviteConfirmTarget = nil
+        }
+    }
+
+    @Test
+    func test_reinviteConfirmed_invitesUserAndSendsSystemMessage() async {
+        // Given
+        var state = ChatRoomFeature.State(
+            chatRoomId: "G_test123",
+            currentUserId: "current-user-123",
+            chatRoomType: .group
+        )
+        state.reinviteConfirmTarget = ReinviteTarget(userId: "friend-2", nickname: "Friend Two")
+
+        var invitedUserIds: [String]?
+        var sentSystemMessage: String?
+
+        let store = TestStore(initialState: state) {
+            ChatRoomFeature()
+        } withDependencies: {
+            $0.chatRoomRepository.inviteToGroupChat = { _, userIds in
+                invitedUserIds = userIds
+            }
+            $0.chatRoomRepository.sendSystemMessage = { _, message in
+                sentSystemMessage = message
+            }
+        }
+
+        // When
+        await store.send(.reinviteConfirmed) {
+            $0.reinviteConfirmTarget = nil
+            $0.isInviting = true
+        }
+
+        // Then
+        await store.receive(\.reinviteCompleted.success) {
+            $0.isInviting = false
+            // Bug fix: 재초대한 유저가 activeUserIds에 추가됨
+            $0.activeUserIds.append("friend-2")
+        }
+
+        #expect(invitedUserIds == ["friend-2"])
+        #expect(sentSystemMessage == Strings.Chat.userJoinedMessage("Friend Two"))
+    }
+
+    @Test
+    func test_reinviteConfirmed_withNoTarget_doesNothing() async {
+        // Given
+        let state = ChatRoomFeature.State(
+            chatRoomId: "G_test123",
+            currentUserId: "current-user-123",
+            chatRoomType: .group
+        )
+
+        let store = TestStore(initialState: state) {
+            ChatRoomFeature()
+        }
+
+        // When & Then - should not change state
+        await store.send(.reinviteConfirmed)
+    }
+
+    @Test
+    func test_reinviteCompleted_failure_setsError() async {
+        // Given
+        var state = ChatRoomFeature.State(
+            chatRoomId: "G_test123",
+            currentUserId: "current-user-123",
+            chatRoomType: .group
+        )
+        state.isInviting = true
+
+        let store = TestStore(initialState: state) {
+            ChatRoomFeature()
+        }
+
+        // When
+        await store.send(.reinviteCompleted(.failure(TestError.networkError))) {
+            // Then
+            $0.isInviting = false
+            $0.error = TestError.networkError.localizedDescription
+        }
+    }
+
+    // MARK: - Lazy Group Chat Creation Tests
+
+    @Test
+    func test_needsToCreateGroupChat_returnsTrueWhenPending() {
+        // Given
+        let state = ChatRoomFeature.State(
+            chatRoomId: "G_test123",
+            currentUserId: "current-user-123",
+            chatRoomType: .group,
+            activeUserIds: ["current-user-123", "friend-1", "friend-2"],
+            allFriends: TestData.allFriends,
+            pendingGroupChatUserIds: ["current-user-123", "friend-1", "friend-2"]
+        )
+
+        // Then
+        #expect(state.needsToCreateGroupChat == true)
+    }
+
+    @Test
+    func test_needsToCreateGroupChat_returnsFalseWhenNotPending() {
+        // Given
+        let state = ChatRoomFeature.State(
+            chatRoomId: "G_test123",
+            currentUserId: "current-user-123",
+            chatRoomType: .group
+        )
+
+        // Then
+        #expect(state.needsToCreateGroupChat == false)
+    }
+
+    @Test
+    func test_sendButtonTapped_createsGroupChatAndSendsMessage_whenPending() async {
+        // Given
+        var state = ChatRoomFeature.State(
+            chatRoomId: "G_test123",
+            currentUserId: "current-user-123",
+            chatRoomType: .group,
+            pendingGroupChatUserIds: ["current-user-123", "friend-1", "friend-2"]
+        )
+        state.inputText = "첫 메시지"
+
+        var createdChatRoomId: String?
+        var createdUserIds: [String]?
+        var createdSenderId: String?
+        var createdContent: String?
+
+        let store = TestStore(initialState: state) {
+            ChatRoomFeature()
+        } withDependencies: {
+            $0.chatRoomRepository.createGroupChatRoomAndSendMessage = { chatRoomId, userIds, senderId, content in
+                createdChatRoomId = chatRoomId
+                createdUserIds = userIds
+                createdSenderId = senderId
+                createdContent = content
+            }
+        }
+
+        // When
+        await store.send(.sendButtonTapped) {
+            $0.isSending = true
+            $0.inputText = ""
+            $0.pendingGroupChatUserIds = nil  // Lazy 생성 완료
+        }
+
+        // Then
+        await store.receive(\.messageSent) {
+            $0.isSending = false
+        }
+
+        #expect(createdChatRoomId == "G_test123")
+        #expect(createdUserIds?.contains("current-user-123") == true)
+        #expect(createdUserIds?.contains("friend-1") == true)
+        #expect(createdUserIds?.contains("friend-2") == true)
+        #expect(createdSenderId == "current-user-123")
+        #expect(createdContent == "첫 메시지")
+    }
 }

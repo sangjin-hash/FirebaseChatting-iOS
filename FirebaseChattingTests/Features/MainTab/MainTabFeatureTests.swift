@@ -266,12 +266,14 @@ struct MainTabFeatureTests {
             $0.currentUser = TestData.currentUser
             $0.home.currentUser = TestData.currentUser
             $0.chatList.currentUserId = TestData.currentUser.profile.id
+            $0.chatList.currentUserNickname = TestData.currentUser.profile.nickname ?? ""
             $0.previousFriendIds = TestData.currentUser.friendIds
         }
 
         // Then: Receiving friendsLoaded means getFriends was called
         await store.receive(\.friendsLoaded.success) {
             $0.home.friends = TestData.friendProfiles
+            $0.chatList.friends = TestData.friendProfiles
         }
     }
 
@@ -291,6 +293,7 @@ struct MainTabFeatureTests {
             $0.currentUser = TestData.currentUser
             $0.home.currentUser = TestData.currentUser
             $0.chatList.currentUserId = TestData.currentUser.profile.id
+            $0.chatList.currentUserNickname = TestData.currentUser.profile.nickname ?? ""
         }
 
         // Then: No effects should be received (getFriends and getUserBatch not called)
@@ -314,6 +317,7 @@ struct MainTabFeatureTests {
             $0.currentUser = TestData.currentUserWithNoFriends
             $0.home.currentUser = TestData.currentUserWithNoFriends
             $0.chatList.currentUserId = TestData.currentUserWithNoFriends.profile.id
+            $0.chatList.currentUserNickname = TestData.currentUserWithNoFriends.profile.nickname ?? ""
             $0.previousFriendIds = []
             $0.home.friends = []
         }
@@ -332,6 +336,7 @@ struct MainTabFeatureTests {
         await store.send(.friendsLoaded(.success(TestData.friendProfiles))) {
             // Then
             $0.home.friends = TestData.friendProfiles
+            $0.chatList.friends = TestData.friendProfiles
         }
     }
 
@@ -401,6 +406,7 @@ struct MainTabFeatureTests {
             $0.currentUser = TestData.currentUserWithMultipleChatRooms
             $0.home.currentUser = TestData.currentUserWithMultipleChatRooms
             $0.chatList.currentUserId = TestData.currentUserWithMultipleChatRooms.profile.id
+            $0.chatList.currentUserNickname = TestData.currentUserWithMultipleChatRooms.profile.nickname ?? ""
             $0.previousChatRoomIds = TestData.currentUserWithMultipleChatRooms.chatRooms
         }
 
@@ -442,6 +448,7 @@ struct MainTabFeatureTests {
             $0.currentUser = TestData.currentUserWithMultipleChatRooms
             $0.home.currentUser = TestData.currentUserWithMultipleChatRooms
             $0.chatList.currentUserId = TestData.currentUserWithMultipleChatRooms.profile.id
+            $0.chatList.currentUserNickname = TestData.currentUserWithMultipleChatRooms.profile.nickname ?? ""
             $0.previousChatRoomIds = TestData.currentUserWithMultipleChatRooms.chatRooms
         }
 
@@ -477,6 +484,7 @@ struct MainTabFeatureTests {
             $0.currentUser = TestData.currentUserWithMultipleChatRooms
             $0.home.currentUser = TestData.currentUserWithMultipleChatRooms
             $0.chatList.currentUserId = TestData.currentUserWithMultipleChatRooms.profile.id
+            $0.chatList.currentUserNickname = TestData.currentUserWithMultipleChatRooms.profile.nickname ?? ""
             // chatList.chatRoomIds should remain unchanged (no state change)
         }
 
@@ -501,6 +509,7 @@ struct MainTabFeatureTests {
             $0.currentUser = TestData.currentUserWithNoFriends
             $0.home.currentUser = TestData.currentUserWithNoFriends
             $0.chatList.currentUserId = TestData.currentUserWithNoFriends.profile.id
+            $0.chatList.currentUserNickname = TestData.currentUserWithNoFriends.profile.nickname ?? ""
             $0.previousChatRoomIds = []
             $0.chatList.chatRoomProfiles = [:]
         }
@@ -528,6 +537,7 @@ struct MainTabFeatureTests {
             $0.currentUser = TestData.currentUserWithNoFriends
             $0.home.currentUser = TestData.currentUserWithNoFriends
             $0.chatList.currentUserId = TestData.currentUserWithNoFriends.profile.id
+            $0.chatList.currentUserNickname = TestData.currentUserWithNoFriends.profile.nickname ?? ""
             $0.previousChatRoomIds = []
             $0.chatList.chatRoomProfiles = [:]
         }

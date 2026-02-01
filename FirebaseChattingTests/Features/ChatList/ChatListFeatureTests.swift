@@ -122,7 +122,9 @@ struct ChatListFeatureTests {
             // Then
             $0.chatRoomDestination = ChatRoomFeature.State(
                 chatRoomId: chatRoom.id,
-                currentUserId: "user-123"
+                currentUserId: "user-123",
+                chatRoomType: chatRoom.type,
+                activeUserIds: Array(chatRoom.activeUsers.keys)
             )
         }
         // Note: cancel effect는 TestStore에서 자동으로 처리됨
@@ -435,7 +437,9 @@ struct ChatListFeatureTests {
             $0.chatRoomDestination = ChatRoomFeature.State(
                 chatRoomId: TestData.chatRoom1.id,
                 currentUserId: "current-user-123",
-                otherUser: profile
+                otherUser: profile,
+                chatRoomType: TestData.chatRoom1.type,
+                activeUserIds: Array(TestData.chatRoom1.activeUsers.keys)
             )
         }
     }
@@ -474,12 +478,8 @@ struct ChatListFeatureTests {
             $0.chatRoomDestination = nil
         }
 
-        // Then - observeChatRooms 재시작
-        await store.receive(\.chatRoomsUpdated) {
-            $0.chatRooms = chatRooms
-            $0.isLoading = false
-            $0.error = nil
-        }
+        // Then - observeChatRooms 재시작 (chatRooms가 동일하므로 상태 변경 없음)
+        await store.receive(\.chatRoomsUpdated)
     }
 
     @Test
@@ -545,6 +545,229 @@ struct ChatListFeatureTests {
         await store.send(.leaveCompleted(.failure(TestError.networkError))) {
             // Then
             $0.error = TestError.networkError.localizedDescription
+        }
+    }
+
+    // MARK: - setFriends Tests
+
+    @Test
+    func test_setFriends_updatesFriends() async {
+        // Given
+        let store = TestStore(initialState: ChatListFeature.State()) {
+            ChatListFeature()
+        }
+
+        // When
+        await store.send(.setFriends(TestData.friendProfiles)) {
+            // Then
+            $0.friends = TestData.friendProfiles
+        }
+    }
+
+    // MARK: - setCurrentUserNickname Tests
+
+    @Test
+    func test_setCurrentUserNickname_updatesNickname() async {
+        // Given
+        let store = TestStore(initialState: ChatListFeature.State()) {
+            ChatListFeature()
+        }
+
+        // When
+        await store.send(.setCurrentUserNickname("TestUser")) {
+            // Then
+            $0.currentUserNickname = "TestUser"
+        }
+    }
+
+    // MARK: - createGroupChatButtonTapped Tests
+
+    @Test
+    func test_createGroupChatButtonTapped_presentsSheet() async {
+        // Given
+        var state = ChatListFeature.State()
+        state.currentUserId = "user-123"
+        state.friends = TestData.friendProfiles
+
+        let store = TestStore(initialState: state) {
+            ChatListFeature()
+        }
+
+        // When
+        await store.send(.createGroupChatButtonTapped) {
+            // Then
+            $0.createGroupChatDestination = CreateGroupChatFeature.State(
+                currentUserId: "user-123",
+                friends: TestData.friendProfiles
+            )
+        }
+    }
+
+    @Test
+    func test_createGroupChatButtonTapped_withNoFriends_stillPresentsSheet() async {
+        // Given - 친구 없어도 모달 표시 (빈 상태 메시지)
+        var state = ChatListFeature.State()
+        state.currentUserId = "user-123"
+        state.friends = []
+
+        let store = TestStore(initialState: state) {
+            ChatListFeature()
+        }
+
+        // When
+        await store.send(.createGroupChatButtonTapped) {
+            // Then - 친구 없어도 모달 표시
+            $0.createGroupChatDestination = CreateGroupChatFeature.State(
+                currentUserId: "user-123",
+                friends: []
+            )
+        }
+    }
+
+    // MARK: - createGroupChatDestination Tests
+
+    @Test
+    func test_createGroupChatDestination_groupChatPrepared_navigatesToChatRoom() async {
+        // Given
+        var state = ChatListFeature.State()
+        state.currentUserId = "user-123"
+        state.friends = TestData.friendProfiles
+        state.createGroupChatDestination = CreateGroupChatFeature.State(
+            currentUserId: "user-123",
+            friends: TestData.friendProfiles
+        )
+
+        let store = TestStore(initialState: state) {
+            ChatListFeature()
+        }
+
+        let selectedFriendIds: Set<String> = ["friend-1", "friend-2"]
+        let userIds = Array(selectedFriendIds) + ["user-123"]
+
+        // When
+        await store.send(.createGroupChatDestination(.presented(.delegate(.groupChatPrepared(chatRoomId: "G_test123", selectedFriendIds: selectedFriendIds))))) {
+            // Then - 모달 닫고 채팅방으로 이동
+            $0.createGroupChatDestination = nil
+            $0.chatRoomDestination = ChatRoomFeature.State(
+                chatRoomId: "G_test123",
+                currentUserId: "user-123",
+                otherUser: TestData.friend1Profile,  // 첫 번째 선택된 친구
+                chatRoomType: .group,
+                activeUserIds: userIds,
+                allFriends: TestData.friendProfiles,
+                pendingGroupChatUserIds: userIds
+            )
+        }
+    }
+
+    // MARK: - leaveConfirmed for Group Chat Tests
+
+    @Test
+    func test_leaveConfirmed_sendsSystemMessage_forGroupChat() async {
+        // Given
+        let groupChatRoom = TestData.groupChatRoom1
+        var state = ChatListFeature.State()
+        state.currentUserId = "current-user-123"
+        state.currentUserNickname = "TestUser"
+        state.chatRooms = [groupChatRoom]
+        state.leaveConfirmTarget = groupChatRoom
+
+        var sentSystemMessage: String?
+        var sentChatRoomId: String?
+        var sentLeftUserId: String?
+        var sentLeftUserNickname: String?
+
+        let store = TestStore(initialState: state) {
+            ChatListFeature()
+        } withDependencies: {
+            $0.chatRoomRepository.sendSystemMessageWithLeftUser = { chatRoomId, message, leftUserId, leftUserNickname in
+                sentChatRoomId = chatRoomId
+                sentSystemMessage = message
+                sentLeftUserId = leftUserId
+                sentLeftUserNickname = leftUserNickname
+            }
+            $0.chatListRepository.leaveChatRoom = { _, _ in }
+        }
+
+        // When
+        await store.send(.leaveConfirmed) {
+            $0.leaveConfirmTarget = nil
+        }
+
+        // Then
+        await store.receive(\.leaveCompleted.success) {
+            $0.chatRooms.removeAll { $0.id == groupChatRoom.id }
+            $0.chatRoomProfiles.removeValue(forKey: groupChatRoom.id)
+        }
+
+        #expect(sentChatRoomId == groupChatRoom.id)
+        #expect(sentSystemMessage == Strings.Chat.userLeftMessage("TestUser"))
+        #expect(sentLeftUserId == "current-user-123")
+        #expect(sentLeftUserNickname == "TestUser")
+    }
+
+    @Test
+    func test_leaveConfirmed_doesNotSendSystemMessage_forDirectChat() async {
+        // Given
+        let directChatRoom = TestData.chatRoom1
+        var state = ChatListFeature.State()
+        state.currentUserId = "current-user-123"
+        state.currentUserNickname = "TestUser"
+        state.chatRooms = [directChatRoom]
+        state.leaveConfirmTarget = directChatRoom
+
+        var sendSystemMessageCalled = false
+
+        let store = TestStore(initialState: state) {
+            ChatListFeature()
+        } withDependencies: {
+            $0.chatRoomRepository.sendSystemMessage = { _, _ in
+                sendSystemMessageCalled = true
+            }
+            $0.chatListRepository.leaveChatRoom = { _, _ in }
+        }
+
+        // When
+        await store.send(.leaveConfirmed) {
+            $0.leaveConfirmTarget = nil
+        }
+
+        // Then
+        await store.receive(\.leaveCompleted.success) {
+            $0.chatRooms.removeAll { $0.id == directChatRoom.id }
+            $0.chatRoomProfiles.removeValue(forKey: directChatRoom.id)
+        }
+
+        #expect(sendSystemMessageCalled == false)
+    }
+
+    // MARK: - chatRoomTapped with Group Chat Tests
+
+    @Test
+    func test_chatRoomTapped_passesGroupChatInfo() async {
+        // Given
+        let groupChatRoom = TestData.groupChatRoom1
+        var state = ChatListFeature.State()
+        state.currentUserId = "current-user-123"
+        state.chatRooms = [groupChatRoom]
+        state.chatRoomProfiles = [groupChatRoom.id: TestData.friend1Profile]
+        state.friends = TestData.friendProfiles
+
+        let store = TestStore(initialState: state) {
+            ChatListFeature()
+        }
+
+        // When
+        await store.send(.chatRoomTapped(groupChatRoom)) {
+            // Then
+            $0.chatRoomDestination = ChatRoomFeature.State(
+                chatRoomId: groupChatRoom.id,
+                currentUserId: "current-user-123",
+                otherUser: TestData.friend1Profile,
+                chatRoomType: .group,
+                activeUserIds: Array(groupChatRoom.activeUsers.keys),
+                allFriends: TestData.friendProfiles
+            )
         }
     }
 }
