@@ -62,5 +62,37 @@ enum Strings {
         static let leave = "나가기"
         static let messageInputPlaceholder = "메시지를 입력하세요"
         static let noParticipant = "대화 상대 없음"
+
+        // 그룹 채팅
+        static let createGroupChat = "그룹 채팅 만들기"
+        static let selectFriends = "친구를 선택하세요"
+        static let minimumSelectionRequired = "2명 이상 선택해주세요"
+        static let create = "만들기"
+        static let selected = "명 선택"
+
+        // 친구 초대
+        static let inviteFriends = "친구 초대"
+        static let invite = "초대"
+
+        // 시스템 메시지
+        static func userLeftMessage(_ nickname: String) -> String {
+            "\(nickname)님이 나갔습니다"
+        }
+
+        static func userJoinedMessage(_ nickname: String) -> String {
+            "\(nickname)님이 참여했습니다"
+        }
+
+        // 빈 상태 메시지
+        static let noFriendsForGroupChat = "추가된 친구가 없어요.\n친구를 추가한 뒤 그룹채팅방을 생성해보세요."
+
+        // 초대하기 링크
+        static func inviteUserLink(_ nickname: String) -> String {
+            "\(nickname)님 초대하기"
+        }
+
+        static func reinviteConfirmMessage(_ nickname: String) -> String {
+            "\(nickname)님을 채팅방에 초대할까요?"
+        }
     }
 }

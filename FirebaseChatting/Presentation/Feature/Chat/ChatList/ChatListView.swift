@@ -23,6 +23,18 @@ struct ChatListView: View {
                 }
             }
             .navigationTitle(Strings.Chat.title)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        store.send(.createGroupChatButtonTapped)
+                    } label: {
+                        Image(systemName: "plus.bubble")
+                    }
+                }
+            }
+            .sheet(item: $store.scope(state: \.createGroupChatDestination, action: \.createGroupChatDestination)) { createGroupChatStore in
+                CreateGroupChatView(store: createGroupChatStore)
+            }
             .alert(Strings.Common.error, isPresented: .constant(store.error != nil)) {
                 Button(Strings.Common.confirm) {
                     // 에러 상태 초기화
@@ -92,11 +104,12 @@ struct ChatListView: View {
                 .listRowSeparator(.hidden)
                 .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
                 .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                    Button(role: .destructive) {
+                    Button {
                         store.send(.leaveSwipeAction(chatRoom))
                     } label: {
                         Label(Strings.Chat.leave, systemImage: "door.left.hand.open")
                     }
+                    .tint(.red)
                 }
             }
         }

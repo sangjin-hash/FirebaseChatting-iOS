@@ -16,13 +16,16 @@ struct ChatListFeature {
     @ObservableState
     struct State: Equatable {
         var currentUserId: String = ""
+        var currentUserNickname: String = ""
         var chatRoomIds: [String] = []  // 관찰할 채팅방 ID 목록
         var chatRooms: [ChatRoom] = []
         var chatRoomProfiles: [String: Profile] = [:]  // chatRoomId → 상대방 프로필
+        var friends: [Profile] = []  // 그룹 채팅 생성용
         var isLoading: Bool = false
         var error: String?
         var leaveConfirmTarget: ChatRoom? = nil
         @Presents var chatRoomDestination: ChatRoomFeature.State?
+        @Presents var createGroupChatDestination: CreateGroupChatFeature.State?
 
         // MARK: - Computed Properties
 
@@ -53,10 +56,14 @@ struct ChatListFeature {
         case onAppear
         case onDisappear
         case setCurrentUserId(String)
+        case setCurrentUserNickname(String)
         case setChatRoomIds([String])
+        case setFriends([Profile])
         case chatRoomsUpdated([ChatRoom])
         case chatRoomTapped(ChatRoom)
         case chatRoomDestination(PresentationAction<ChatRoomFeature.Action>)
+        case createGroupChatButtonTapped
+        case createGroupChatDestination(PresentationAction<CreateGroupChatFeature.Action>)
         case leaveSwipeAction(ChatRoom)
         case leaveConfirmDismissed
         case leaveConfirmed
@@ -69,17 +76,24 @@ struct ChatListFeature {
             case (.onAppear, .onAppear),
                  (.onDisappear, .onDisappear),
                  (.leaveConfirmDismissed, .leaveConfirmDismissed),
-                 (.leaveConfirmed, .leaveConfirmed):
+                 (.leaveConfirmed, .leaveConfirmed),
+                 (.createGroupChatButtonTapped, .createGroupChatButtonTapped):
                 return true
             case let (.setCurrentUserId(lhs), .setCurrentUserId(rhs)):
                 return lhs == rhs
+            case let (.setCurrentUserNickname(lhs), .setCurrentUserNickname(rhs)):
+                return lhs == rhs
             case let (.setChatRoomIds(lhs), .setChatRoomIds(rhs)):
+                return lhs == rhs
+            case let (.setFriends(lhs), .setFriends(rhs)):
                 return lhs == rhs
             case let (.chatRoomsUpdated(lhs), .chatRoomsUpdated(rhs)):
                 return lhs == rhs
             case let (.chatRoomTapped(lhs), .chatRoomTapped(rhs)):
                 return lhs == rhs
             case let (.chatRoomDestination(lhs), .chatRoomDestination(rhs)):
+                return lhs == rhs
+            case let (.createGroupChatDestination(lhs), .createGroupChatDestination(rhs)):
                 return lhs == rhs
             case let (.leaveSwipeAction(lhs), .leaveSwipeAction(rhs)):
                 return lhs == rhs
@@ -103,6 +117,7 @@ struct ChatListFeature {
     // MARK: - Dependency
 
     @Dependency(\.chatListRepository) var chatListRepository
+    @Dependency(\.chatRoomRepository) var chatRoomRepository
 
     // MARK: - Reducer
 
@@ -119,6 +134,14 @@ struct ChatListFeature {
 
             case let .setCurrentUserId(userId):
                 state.currentUserId = userId
+                return .none
+
+            case let .setCurrentUserNickname(nickname):
+                state.currentUserNickname = nickname
+                return .none
+
+            case let .setFriends(friends):
+                state.friends = friends
                 return .none
 
             case let .setChatRoomIds(chatRoomIds):
@@ -146,7 +169,10 @@ struct ChatListFeature {
                 state.chatRoomDestination = ChatRoomFeature.State(
                     chatRoomId: chatRoom.id,
                     currentUserId: state.currentUserId,
-                    otherUser: state.chatRoomProfiles[chatRoom.id]
+                    otherUser: state.chatRoomProfiles[chatRoom.id],
+                    chatRoomType: chatRoom.type,
+                    activeUserIds: Array(chatRoom.activeUsers.keys),
+                    allFriends: state.friends
                 )
                 // 채팅방 진입 시 chatRooms 스트림 해제
                 return .cancel(id: "observeChatRooms")
@@ -165,6 +191,40 @@ struct ChatListFeature {
             case .chatRoomDestination:
                 return .none
 
+            case .createGroupChatButtonTapped:
+                state.createGroupChatDestination = CreateGroupChatFeature.State(
+                    currentUserId: state.currentUserId,
+                    friends: state.friends
+                )
+                return .none
+
+            case let .createGroupChatDestination(.presented(.delegate(.groupChatPrepared(chatRoomId, selectedFriendIds)))):
+                state.createGroupChatDestination = nil
+
+                // Lazy 생성: Firestore 호출 없이 ChatRoomFeature.State 생성
+                // 본인 포함 userIds 생성
+                var userIds = Array(selectedFriendIds)
+                userIds.append(state.currentUserId)
+
+                // 선택된 친구 중 첫 번째를 대표 프로필로 사용
+                let representativeProfile = state.friends.first { selectedFriendIds.contains($0.id) }
+
+                state.chatRoomDestination = ChatRoomFeature.State(
+                    chatRoomId: chatRoomId,
+                    currentUserId: state.currentUserId,
+                    otherUser: representativeProfile,
+                    chatRoomType: .group,
+                    activeUserIds: userIds,
+                    allFriends: state.friends,
+                    pendingGroupChatUserIds: userIds
+                )
+
+                // 채팅방 진입 시 chatRooms 스트림 해제
+                return .cancel(id: "observeChatRooms")
+
+            case .createGroupChatDestination:
+                return .none
+
             case let .leaveSwipeAction(chatRoom):
                 state.leaveConfirmTarget = chatRoom
                 return .none
@@ -177,10 +237,23 @@ struct ChatListFeature {
                 guard let chatRoom = state.leaveConfirmTarget else { return .none }
                 let chatRoomId = chatRoom.id
                 let userId = state.currentUserId
+                let isGroupChat = chatRoom.type == .group
+                let nickname = state.currentUserNickname
                 state.leaveConfirmTarget = nil
 
-                return .run { [chatListRepository] send in
+                return .run { [chatListRepository, chatRoomRepository] send in
                     do {
+                        // 그룹 채팅방인 경우 나가기 전 시스템 메시지 전송 (나간 사용자 정보 포함)
+                        if isGroupChat {
+                            let displayNickname = nickname.isEmpty ? Strings.Common.unknown : nickname
+                            let message = Strings.Chat.userLeftMessage(displayNickname)
+                            try await chatRoomRepository.sendSystemMessageWithLeftUser(
+                                chatRoomId,
+                                message,
+                                userId,
+                                displayNickname
+                            )
+                        }
                         try await chatListRepository.leaveChatRoom(chatRoomId, userId)
                         await send(.leaveCompleted(.success(chatRoomId)))
                     } catch {
@@ -205,6 +278,9 @@ struct ChatListFeature {
         }
         .ifLet(\.$chatRoomDestination, action: \.chatRoomDestination) {
             ChatRoomFeature()
+        }
+        .ifLet(\.$createGroupChatDestination, action: \.createGroupChatDestination) {
+            CreateGroupChatFeature()
         }
     }
 }

@@ -126,8 +126,9 @@ struct MainTabFeature {
                 state.currentUser = user
                 // HomeFeature에 currentUser 전달
                 state.home.currentUser = user
-                // ChatListFeature에 currentUserId 전달
+                // ChatListFeature에 currentUserId와 nickname 전달
                 state.chatList.currentUserId = user.profile.id
+                state.chatList.currentUserNickname = user.profile.nickname ?? ""
 
                 var effects: [Effect<Action>] = []
 
@@ -177,6 +178,7 @@ struct MainTabFeature {
 
             case let .friendsLoaded(.success(friends)):
                 state.home.friends = friends
+                state.chatList.friends = friends
                 return .none
 
             case let .friendsLoaded(.failure(error)):

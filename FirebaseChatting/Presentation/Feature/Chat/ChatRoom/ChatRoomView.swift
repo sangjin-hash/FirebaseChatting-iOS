@@ -25,6 +25,35 @@ struct ChatRoomView: View {
             store.send(.onAppear)
         }
         .toolbar(.hidden, for: .tabBar)
+        .toolbar {
+            if store.isGroupChat {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        store.send(.inviteFriendsButtonTapped)
+                    } label: {
+                        if store.isInviting {
+                            ProgressView()
+                        } else {
+                            Image(systemName: "person.badge.plus")
+                        }
+                    }
+                    .disabled(store.invitableFriends.isEmpty || store.isInviting)
+                }
+            }
+        }
+        .sheet(item: $store.scope(state: \.inviteFriendsDestination, action: \.inviteFriendsDestination)) { inviteFriendsStore in
+            InviteFriendsView(store: inviteFriendsStore)
+        }
+        .confirmDialog(
+            isPresented: Binding(
+                get: { store.reinviteConfirmTarget != nil },
+                set: { if !$0 { store.send(.reinviteConfirmDismissed) } }
+            ),
+            message: store.reinviteConfirmTarget.map { Strings.Chat.reinviteConfirmMessage($0.nickname) } ?? "",
+            onConfirm: {
+                store.send(.reinviteConfirmed)
+            }
+        )
     }
 
     // MARK: - Message List
@@ -133,15 +162,40 @@ struct ChatRoomView: View {
 
     // MARK: - System Message View
 
+    @ViewBuilder
     private func systemMessageView(message: Message) -> some View {
-        Text(message.content ?? "")
-            .font(.caption)
-            .foregroundColor(.secondary)
+        if let leftUserId = message.leftUserId, let leftNickname = message.leftUserNickname {
+            // 나감 메시지 + 초대하기 링크
+            VStack(spacing: 4) {
+                Text(message.content ?? "")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
+                Button {
+                    store.send(.reinviteUserTapped(userId: leftUserId, nickname: leftNickname))
+                } label: {
+                    Text(Strings.Chat.inviteUserLink(leftNickname))
+                        .font(.caption)
+                        .foregroundColor(.blue)
+                        .underline()
+                }
+            }
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
             .background(Color.secondary.opacity(0.1))
-            .clipShape(Capsule())
+            .clipShape(RoundedRectangle(cornerRadius: 12))
             .frame(maxWidth: .infinity)
+        } else {
+            // 일반 시스템 메시지
+            Text(message.content ?? "")
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(Color.secondary.opacity(0.1))
+                .clipShape(Capsule())
+                .frame(maxWidth: .infinity)
+        }
     }
 
     // MARK: - My Message View
