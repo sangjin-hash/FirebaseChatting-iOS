@@ -36,7 +36,7 @@ nonisolated struct ChatRoomRemoteDataSource: Sendable {
         _ content: String
     ) async throws -> Void
     /// 이전 메시지 로드 (페이지네이션)
-    var fetchMessages: @Sendable (_ chatRoomId: String, _ beforeIndex: Int?, _ limit: Int) async throws -> [Message]
+    var fetchMessages: @Sendable (_ chatRoomId: String, _ beforeCreatedAt: Date?, _ limit: Int) async throws -> [Message]
 
     // MARK: - Group Chat Methods
 
@@ -133,7 +133,7 @@ extension ChatRoomRemoteDataSource: DependencyKey {
                     let listener = db.collection("chatRooms")
                         .document(chatRoomId)
                         .collection("messages")
-                        .order(by: "index", descending: true)  // DESC: 최신 메시지부터
+                        .order(by: "createdAt", descending: true)  // DESC: 최신 메시지부터
                         .limit(to: limit)
                         .addSnapshotListener { snapshot, error in
                             guard let documents = snapshot?.documents else {
@@ -143,8 +143,8 @@ extension ChatRoomRemoteDataSource: DependencyKey {
                             let messages = documents.compactMap { doc -> Message? in
                                 try? MessageResponseDTO.from(document: doc).toModel()
                             }
-                            // index 오름차순 정렬 (UI 표시용: 오래된 메시지가 위)
-                            let sortedMessages = messages.sorted { $0.index < $1.index }
+                            // createdAt 오름차순 정렬 (UI 표시용: 오래된 메시지가 위)
+                            let sortedMessages = messages.sorted { $0.createdAt < $1.createdAt }
                             continuation.yield(sortedMessages)
                         }
 
@@ -265,15 +265,15 @@ extension ChatRoomRemoteDataSource: DependencyKey {
 
                 try await batch.commit()
             },
-            fetchMessages: { chatRoomId, beforeIndex, limit in
+            fetchMessages: { chatRoomId, beforeCreatedAt, limit in
                 var query = db.collection("chatRooms")
                     .document(chatRoomId)
                     .collection("messages")
-                    .order(by: "index", descending: true)  // DESC: 최신 메시지부터
+                    .order(by: "createdAt", descending: true)  // DESC: 최신 메시지부터
                     .limit(to: limit)
 
-                if let beforeIndex = beforeIndex {
-                    query = query.whereField("index", isLessThan: beforeIndex)  // 더 오래된 메시지
+                if let beforeCreatedAt = beforeCreatedAt {
+                    query = query.whereField("createdAt", isLessThan: Timestamp(date: beforeCreatedAt))  // 더 오래된 메시지
                 }
 
                 let snapshot = try await query.getDocuments()
@@ -282,8 +282,8 @@ extension ChatRoomRemoteDataSource: DependencyKey {
                     try? MessageResponseDTO.from(document: doc).toModel()
                 }
 
-                // index 오름차순 정렬 (UI 표시용)
-                return messages.sorted { $0.index < $1.index }
+                // createdAt 오름차순 정렬 (UI 표시용)
+                return messages.sorted { $0.createdAt < $1.createdAt }
             },
             createGroupChatRoomAndSendMessage: { chatRoomId, userIds, senderId, content in
                 let chatRoomRef = db.collection("chatRooms").document(chatRoomId)
@@ -379,110 +379,34 @@ extension ChatRoomRemoteDataSource: DependencyKey {
                 }
             },
             sendSystemMessage: { chatRoomId, content in
-                let chatRoomRef = db.collection("chatRooms").document(chatRoomId)
-                let messagesRef = chatRoomRef.collection("messages")
+                let messagesRef = db.collection("chatRooms").document(chatRoomId).collection("messages")
 
-                // 트랜잭션으로 index 증가 + 시스템 메시지 추가
-                _ = try await db.runTransaction { transaction, errorPointer in
-                    let chatRoomSnapshot: DocumentSnapshot
-                    do {
-                        chatRoomSnapshot = try transaction.getDocument(chatRoomRef)
-                    } catch let fetchError as NSError {
-                        errorPointer?.pointee = fetchError
-                        return nil
-                    }
+                // 시스템 메시지 생성 (index 없음, chatRoom 업데이트 없음)
+                let messageData: [String: Any] = [
+                    "senderId": "system",
+                    "type": "system",
+                    "content": content,
+                    "mediaUrls": [],
+                    "createdAt": Timestamp()
+                ]
 
-                    guard chatRoomSnapshot.exists,
-                          let data = chatRoomSnapshot.data() else {
-                        let error = NSError(
-                            domain: "ChatRoomRemoteDataSource",
-                            code: -1,
-                            userInfo: [NSLocalizedDescriptionKey: "ChatRoom not found"]
-                        )
-                        errorPointer?.pointee = error
-                        return nil
-                    }
-
-                    let currentIndex = data["index"] as? Int ?? 0
-                    let newIndex = currentIndex + 1
-                    let now = Timestamp()
-
-                    // 시스템 메시지 생성
-                    let newMessageRef = messagesRef.document()
-                    let messageData: [String: Any] = [
-                        "index": newIndex,
-                        "senderId": "system",
-                        "type": "system",
-                        "content": content,
-                        "mediaUrls": [],
-                        "createdAt": now
-                    ]
-
-                    transaction.setData(messageData, forDocument: newMessageRef)
-
-                    // chatRoom 문서 업데이트
-                    transaction.updateData([
-                        "index": newIndex,
-                        "lastMessage": content,
-                        "lastMessageAt": now
-                    ], forDocument: chatRoomRef)
-
-                    return nil
-                }
+                try await messagesRef.addDocument(data: messageData)
             },
             sendSystemMessageWithLeftUser: { chatRoomId, content, leftUserId, leftUserNickname in
-                let chatRoomRef = db.collection("chatRooms").document(chatRoomId)
-                let messagesRef = chatRoomRef.collection("messages")
+                let messagesRef = db.collection("chatRooms").document(chatRoomId).collection("messages")
 
-                // 트랜잭션으로 index 증가 + 시스템 메시지 추가 (나간 사용자 정보 포함)
-                _ = try await db.runTransaction { transaction, errorPointer in
-                    let chatRoomSnapshot: DocumentSnapshot
-                    do {
-                        chatRoomSnapshot = try transaction.getDocument(chatRoomRef)
-                    } catch let fetchError as NSError {
-                        errorPointer?.pointee = fetchError
-                        return nil
-                    }
+                // 시스템 메시지 생성 (index 없음, chatRoom 업데이트 없음)
+                let messageData: [String: Any] = [
+                    "senderId": "system",
+                    "type": "system",
+                    "content": content,
+                    "mediaUrls": [],
+                    "createdAt": Timestamp(),
+                    "leftUserId": leftUserId,
+                    "leftUserNickname": leftUserNickname
+                ]
 
-                    guard chatRoomSnapshot.exists,
-                          let data = chatRoomSnapshot.data() else {
-                        let error = NSError(
-                            domain: "ChatRoomRemoteDataSource",
-                            code: -1,
-                            userInfo: [NSLocalizedDescriptionKey: "ChatRoom not found"]
-                        )
-                        errorPointer?.pointee = error
-                        return nil
-                    }
-
-                    let currentIndex = data["index"] as? Int ?? 0
-                    let newIndex = currentIndex + 1
-                    let now = Timestamp()
-
-                    // 시스템 메시지 생성 (나간 사용자 정보 포함)
-                    let newMessageRef = messagesRef.document()
-                    let messageData: [String: Any] = [
-                        "index": newIndex,
-                        "senderId": "system",
-                        "type": "system",
-                        "content": content,
-                        "mediaUrls": [],
-                        "createdAt": now,
-                        "leftUserId": leftUserId,
-                        "leftUserNickname": leftUserNickname
-                    ]
-
-                    transaction.setData(messageData, forDocument: newMessageRef)
-
-                    // chatRoom 문서 업데이트
-                    transaction.updateData([
-                        "index": newIndex,
-                        "lastMessage": content,
-                        "lastMessageAt": now
-                    ], forDocument: chatRoomRef)
-
-                    return nil
-                }
+                try await messagesRef.addDocument(data: messageData)
             }
         )
     }()

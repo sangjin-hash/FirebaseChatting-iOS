@@ -280,8 +280,8 @@ struct ChatRoomFeature {
                 }
 
             case let .messagesUpdated(messages):
-                // index 기준 오름차순 정렬 (오래된 메시지가 위에)
-                state.messages = messages.sorted { $0.index < $1.index }
+                // createdAt 기준 오름차순 정렬 (오래된 메시지가 위에)
+                state.messages = messages.sorted { $0.createdAt < $1.createdAt }
                 state.isLoading = false
                 return .none
 
@@ -306,13 +306,13 @@ struct ChatRoomFeature {
 
                 state.isLoadingMore = true
                 let chatRoomId = state.chatRoomId
-                let beforeIndex = state.messages.first?.index  // 가장 오래된 메시지의 index
+                let beforeCreatedAt = state.messages.first?.createdAt  // 가장 오래된 메시지의 createdAt
 
                 return .run { [chatRoomRepository] send in
                     do {
                         let olderMessages = try await chatRoomRepository.fetchMessages(
                             chatRoomId,
-                            beforeIndex,
+                            beforeCreatedAt,
                             30
                         )
                         await send(.moreMessagesLoaded(.success(olderMessages)))

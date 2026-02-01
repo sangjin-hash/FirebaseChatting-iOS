@@ -11,7 +11,7 @@ import Foundation
 
 struct Message: Equatable, Sendable, Codable, Identifiable {
     var id: String
-    var index: Int
+    var index: Int?
     var senderId: String
     var type: MessageType
     var content: String?              // 텍스트 또는 시스템 메시지 내용
@@ -24,7 +24,7 @@ struct Message: Equatable, Sendable, Codable, Identifiable {
 
     init(
         id: String,
-        index: Int,
+        index: Int? = nil,
         senderId: String,
         type: MessageType,
         content: String? = nil,

@@ -231,7 +231,6 @@ enum TestData {
 
     static let systemMessage = Message(
         id: "msg-system-1",
-        index: 10,
         senderId: "system",
         type: .system,
         content: "Friend One님이 나가셨습니다",
@@ -241,7 +240,6 @@ enum TestData {
     /// 나간 사용자 정보를 포함한 시스템 메시지
     static let systemMessageWithLeftUser = Message(
         id: "msg-system-2",
-        index: 11,
         senderId: "system",
         type: .system,
         content: "Friend Two님이 나갔습니다",

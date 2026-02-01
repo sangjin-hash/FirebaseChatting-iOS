@@ -12,7 +12,7 @@ import FirebaseFirestore
 
 struct MessageResponseDTO {
     let id: String
-    let index: Int
+    let index: Int?
     let senderId: String
     let type: String
     let content: String?
@@ -34,7 +34,7 @@ struct MessageResponseDTO {
 
         return MessageResponseDTO(
             id: document.documentID,
-            index: data["index"] as? Int ?? 0,
+            index: data["index"] as? Int,
             senderId: data["senderId"] as? String ?? "",
             type: data["type"] as? String ?? "text",
             content: data["content"] as? String,

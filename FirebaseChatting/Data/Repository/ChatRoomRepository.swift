@@ -35,7 +35,7 @@ nonisolated struct ChatRoomRepository: Sendable {
         _ content: String
     ) async throws -> Void
     /// 이전 메시지 로드 (페이지네이션)
-    var fetchMessages: @Sendable (_ chatRoomId: String, _ beforeIndex: Int?, _ limit: Int) async throws -> [Message]
+    var fetchMessages: @Sendable (_ chatRoomId: String, _ beforeCreatedAt: Date?, _ limit: Int) async throws -> [Message]
 
     // MARK: - Group Chat Methods
 
@@ -86,8 +86,8 @@ extension ChatRoomRepository: DependencyKey {
             createChatRoomAndSendMessage: { chatRoomId, userIds, senderId, content in
                 try await dataSource.createChatRoomAndSendMessage(chatRoomId, userIds, senderId, content)
             },
-            fetchMessages: { chatRoomId, beforeIndex, limit in
-                try await dataSource.fetchMessages(chatRoomId, beforeIndex, limit)
+            fetchMessages: { chatRoomId, beforeCreatedAt, limit in
+                try await dataSource.fetchMessages(chatRoomId, beforeCreatedAt, limit)
             },
             createGroupChatRoomAndSendMessage: { chatRoomId, userIds, senderId, content in
                 try await dataSource.createGroupChatRoomAndSendMessage(chatRoomId, userIds, senderId, content)
