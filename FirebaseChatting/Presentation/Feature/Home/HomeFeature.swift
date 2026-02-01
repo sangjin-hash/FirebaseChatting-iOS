@@ -17,6 +17,7 @@ struct HomeFeature {
     struct State: Equatable {
         var currentUser: User?
         var friends: [Profile] = []
+        var hasFriendsLoaded: Bool = false
         var error: String?
         @Presents var searchDestination: SearchFeature.State?
         @Presents var chatRoomDestination: ChatRoomFeature.State?

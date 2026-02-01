@@ -273,6 +273,7 @@ struct MainTabFeatureTests {
         // Then: Receiving friendsLoaded means getFriends was called
         await store.receive(\.friendsLoaded.success) {
             $0.home.friends = TestData.friendProfiles
+            $0.home.hasFriendsLoaded = true
             $0.chatList.friends = TestData.friendProfiles
         }
     }
@@ -319,6 +320,7 @@ struct MainTabFeatureTests {
             $0.chatList.currentUserId = TestData.currentUserWithNoFriends.profile.id
             $0.chatList.currentUserNickname = TestData.currentUserWithNoFriends.profile.nickname ?? ""
             $0.previousFriendIds = []
+            $0.home.hasFriendsLoaded = true
             $0.home.friends = []
         }
     }
@@ -336,6 +338,7 @@ struct MainTabFeatureTests {
         await store.send(.friendsLoaded(.success(TestData.friendProfiles))) {
             // Then
             $0.home.friends = TestData.friendProfiles
+            $0.home.hasFriendsLoaded = true
             $0.chatList.friends = TestData.friendProfiles
         }
     }
@@ -350,6 +353,7 @@ struct MainTabFeatureTests {
         // When
         await store.send(.friendsLoaded(.failure(TestError.networkError))) {
             // Then
+            $0.home.hasFriendsLoaded = true
             $0.home.error = TestError.networkError.localizedDescription
         }
     }

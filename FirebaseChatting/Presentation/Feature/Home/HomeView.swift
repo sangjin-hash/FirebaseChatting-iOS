@@ -38,7 +38,11 @@ struct HomeView: View {
                         .padding(.vertical, 8)
 
                     // 친구 목록
-                    if store.friends.isEmpty {
+                    if !store.hasFriendsLoaded {
+                        // 최초 로드 전: 빈 화면
+                        Color.clear
+                            .frame(height: 100)
+                    } else if store.friends.isEmpty {
                         VStack(spacing: 12) {
                             Text(Strings.Home.noFriends)
                                 .foregroundColor(.secondary)

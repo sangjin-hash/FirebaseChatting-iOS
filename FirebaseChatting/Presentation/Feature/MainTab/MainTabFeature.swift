@@ -148,6 +148,7 @@ struct MainTabFeature {
                         )
                     } else {
                         state.home.friends = []
+                        state.home.hasFriendsLoaded = true
                     }
                 }
 
@@ -178,10 +179,12 @@ struct MainTabFeature {
 
             case let .friendsLoaded(.success(friends)):
                 state.home.friends = friends
+                state.home.hasFriendsLoaded = true
                 state.chatList.friends = friends
                 return .none
 
             case let .friendsLoaded(.failure(error)):
+                state.home.hasFriendsLoaded = true
                 state.home.error = error.localizedDescription
                 return .none
 
