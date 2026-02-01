@@ -664,7 +664,7 @@ struct ChatRoomFeatureTests {
         // Then
         await store.receive(\.inviteCompleted.success) {
             $0.isInviting = false
-            // Bug fix: 초대한 친구들이 activeUserIds에 추가됨
+            // 초대한 친구들이 activeUserIds에 추가됨
             $0.activeUserIds.append(contentsOf: ["friend-3", "friend-4"])
         }
 

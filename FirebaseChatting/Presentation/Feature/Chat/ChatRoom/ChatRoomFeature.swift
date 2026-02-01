@@ -59,6 +59,9 @@ struct ChatRoomFeature {
         // 재초대 관련
         var reinviteConfirmTarget: ReinviteTarget? = nil
 
+        // Drawer 관련
+        var isDrawerOpen: Bool = false
+
         init(
             chatRoomId: String,
             currentUserId: String,
@@ -117,6 +120,11 @@ struct ChatRoomFeature {
         var needsToCreateGroupChat: Bool {
             pendingGroupChatUserIds != nil
         }
+
+        /// 채팅방 참여자 프로필 목록 (allFriends에서 activeUserIds 필터링)
+        var activeUserProfiles: [Profile] {
+            allFriends.filter { activeUserIds.contains($0.id) }
+        }
     }
 
     // MARK: - Action
@@ -152,6 +160,11 @@ struct ChatRoomFeature {
         case reinviteConfirmDismissed
         case reinviteConfirmed
         case reinviteCompleted(Result<String, Error>)  // 재초대한 유저 ID 반환
+
+        // Drawer 관련
+        case drawerButtonTapped
+        case setDrawerOpen(Bool)
+        case inviteFromDrawerTapped
     }
 
     // MARK: - Dependencies
@@ -361,6 +374,16 @@ struct ChatRoomFeature {
                 state.inviteFriendsDestination = nil
                 guard !invitedIds.isEmpty else { return .none }
 
+                // 채팅방이 아직 생성되지 않은 경우 (Lazy 생성 대기 중)
+                if state.needsToCreateGroupChat {
+                    // pendingGroupChatUserIds에 초대한 친구 추가
+                    state.pendingGroupChatUserIds?.append(contentsOf: invitedIds)
+                    // activeUserIds에도 추가 (UI 표시용)
+                    state.activeUserIds.append(contentsOf: invitedIds)
+                    return .none
+                }
+
+                // 이미 생성된 채팅방인 경우 API 호출
                 state.isInviting = true
                 let chatRoomId = state.chatRoomId
                 let allFriends = state.allFriends
@@ -445,6 +468,22 @@ struct ChatRoomFeature {
                 state.isInviting = false
                 state.error = error.localizedDescription
                 return .none
+
+            case .drawerButtonTapped:
+                state.isDrawerOpen = true
+                return .none
+
+            case let .setDrawerOpen(isOpen):
+                state.isDrawerOpen = isOpen
+                return .none
+
+            case .inviteFromDrawerTapped:
+                state.isDrawerOpen = false
+                // 0.3초 후 inviteFriendsButtonTapped 전송 (drawer 닫힘 애니메이션 대기)
+                return .run { send in
+                    try await Task.sleep(nanoseconds: 300_000_000)
+                    await send(.inviteFriendsButtonTapped)
+                }
             }
         }
         .ifLet(\.$inviteFriendsDestination, action: \.inviteFriendsDestination) {
@@ -464,7 +503,9 @@ extension ChatRoomFeature.Action {
              (.loadMoreMessages, .loadMoreMessages),
              (.inviteFriendsButtonTapped, .inviteFriendsButtonTapped),
              (.reinviteConfirmDismissed, .reinviteConfirmDismissed),
-             (.reinviteConfirmed, .reinviteConfirmed):
+             (.reinviteConfirmed, .reinviteConfirmed),
+             (.drawerButtonTapped, .drawerButtonTapped),
+             (.inviteFromDrawerTapped, .inviteFromDrawerTapped):
             return true
 
         case let (.inputTextChanged(lhsText), .inputTextChanged(rhsText)):
@@ -534,6 +575,9 @@ extension ChatRoomFeature.Action {
             default:
                 return false
             }
+
+        case let (.setDrawerOpen(lhs), .setDrawerOpen(rhs)):
+            return lhs == rhs
 
         default:
             return false

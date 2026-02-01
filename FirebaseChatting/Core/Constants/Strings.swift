@@ -94,5 +94,9 @@ enum Strings {
         static func reinviteConfirmMessage(_ nickname: String) -> String {
             "\(nickname)님을 채팅방에 초대할까요?"
         }
+
+        // Drawer
+        static let participants = "참여 인원"
+        static let inviteFriendsButton = "친구 초대하기"
     }
 }

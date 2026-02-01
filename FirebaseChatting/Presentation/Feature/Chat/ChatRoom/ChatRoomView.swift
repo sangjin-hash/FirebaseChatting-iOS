@@ -12,12 +12,24 @@ struct ChatRoomView: View {
     @Bindable var store: StoreOf<ChatRoomFeature>
 
     var body: some View {
-        VStack(spacing: 0) {
-            // 메시지 목록
-            messageList
+        ZStack {
+            VStack(spacing: 0) {
+                // 메시지 목록
+                messageList
 
-            // 메시지 입력
-            messageInput
+                // 메시지 입력
+                messageInput
+            }
+
+            // SideDrawerComponent (그룹 채팅일 때만)
+            if store.isGroupChat {
+                SideDrawerComponent(
+                    isOpen: $store.isDrawerOpen.sending(\.setDrawerOpen),
+                    headerTitle: Strings.Chat.participants
+                ) {
+                    drawerContent
+                }
+            }
         }
         .navigationTitle(store.otherUser?.nickname ?? Strings.Common.noName)
         .navigationBarTitleDisplayMode(.inline)
@@ -29,15 +41,14 @@ struct ChatRoomView: View {
             if store.isGroupChat {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
-                        store.send(.inviteFriendsButtonTapped)
+                        store.send(.drawerButtonTapped)
                     } label: {
                         if store.isInviting {
                             ProgressView()
                         } else {
-                            Image(systemName: "person.badge.plus")
+                            Image(systemName: "line.3.horizontal")
                         }
                     }
-                    .disabled(store.invitableFriends.isEmpty || store.isInviting)
                 }
             }
         }
@@ -54,6 +65,47 @@ struct ChatRoomView: View {
                 store.send(.reinviteConfirmed)
             }
         )
+    }
+
+    // MARK: - Drawer Content
+
+    private var drawerContent: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // 참여 인원 목록
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    ForEach(store.activeUserProfiles, id: \.id) { profile in
+                        UserRowComponent<EmptyView>(
+                            profile: profile,
+                            imageSize: 44,
+                            caption: profile.id == store.currentUserId ? Strings.Common.me : nil
+                        )
+                        .padding(.horizontal)
+                        .padding(.vertical, 8)
+
+                        Divider()
+                            .padding(.leading, 60)
+                    }
+                }
+            }
+
+            Spacer()
+
+            Divider()
+
+            // 친구 초대하기 버튼
+            Button {
+                store.send(.inviteFromDrawerTapped)
+            } label: {
+                HStack {
+                    Image(systemName: "person.badge.plus")
+                    Text(Strings.Chat.inviteFriendsButton)
+                }
+                .frame(maxWidth: .infinity)
+                .padding()
+            }
+            .disabled(store.invitableFriends.isEmpty)
+        }
     }
 
     // MARK: - Message List
