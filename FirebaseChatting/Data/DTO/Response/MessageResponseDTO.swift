@@ -18,6 +18,8 @@ struct MessageResponseDTO {
     let content: String?
     let mediaUrls: [String]
     let createdAt: Timestamp
+    let leftUserId: String?
+    let leftUserNickname: String?
 
     // MARK: - Parsing
 
@@ -37,7 +39,9 @@ struct MessageResponseDTO {
             type: data["type"] as? String ?? "text",
             content: data["content"] as? String,
             mediaUrls: data["mediaUrls"] as? [String] ?? [],
-            createdAt: data["createdAt"] as? Timestamp ?? Timestamp()
+            createdAt: data["createdAt"] as? Timestamp ?? Timestamp(),
+            leftUserId: data["leftUserId"] as? String,
+            leftUserNickname: data["leftUserNickname"] as? String
         )
     }
 
@@ -53,7 +57,9 @@ struct MessageResponseDTO {
             type: messageType,
             content: content,
             mediaUrls: mediaUrls,
-            createdAt: createdAt.dateValue()
+            createdAt: createdAt.dateValue(),
+            leftUserId: leftUserId,
+            leftUserNickname: leftUserNickname
         )
     }
 }

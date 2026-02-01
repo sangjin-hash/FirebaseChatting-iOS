@@ -53,6 +53,11 @@ extension ChatRoom {
         return "D_\(sorted[0])_\(sorted[1])"
     }
 
+    /// 그룹 채팅방 ID 생성 (UUID 기반)ㅊ
+    static func groupChatRoomId() -> String {
+        "G_\(UUID().uuidString)"
+    }
+
     /// 상대방 userId 반환 (1:1 채팅용)
     func otherUserId(myUserId: String) -> String? {
         guard type == .direct else { return nil }

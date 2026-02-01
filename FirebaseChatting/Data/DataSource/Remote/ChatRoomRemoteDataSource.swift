@@ -13,6 +13,8 @@ import ComposableArchitecture
 
 @DependencyClient
 nonisolated struct ChatRoomRemoteDataSource: Sendable {
+    /// 채팅방 ID로 직접 조회 (없으면 nil)
+    var getGroupChatRoom: @Sendable (_ chatRoomId: String) async throws -> ChatRoom?
     /// 1:1 채팅방 조회 (없으면 nil)
     var getDirectChatRoom: @Sendable (_ myUserId: String, _ otherUserId: String) async throws -> ChatRoom?
     /// 채팅방 재입장 (나갔다가 다시 들어오는 경우)
@@ -35,6 +37,27 @@ nonisolated struct ChatRoomRemoteDataSource: Sendable {
     ) async throws -> Void
     /// 이전 메시지 로드 (페이지네이션)
     var fetchMessages: @Sendable (_ chatRoomId: String, _ beforeIndex: Int?, _ limit: Int) async throws -> [Message]
+
+    // MARK: - Group Chat Methods
+
+    /// 그룹 채팅방 생성 + 첫 메시지 전송 (Lazy 생성)
+    var createGroupChatRoomAndSendMessage: @Sendable (
+        _ chatRoomId: String,
+        _ userIds: [String],
+        _ senderId: String,
+        _ content: String
+    ) async throws -> Void
+    /// 그룹 채팅방에 친구 초대
+    var inviteToGroupChat: @Sendable (_ chatRoomId: String, _ invitedUserIds: [String]) async throws -> Void
+    /// 시스템 메시지 전송 (일반)
+    var sendSystemMessage: @Sendable (_ chatRoomId: String, _ content: String) async throws -> Void
+    /// 시스템 메시지 전송 (나간 사용자 정보 포함)
+    var sendSystemMessageWithLeftUser: @Sendable (
+        _ chatRoomId: String,
+        _ content: String,
+        _ leftUserId: String,
+        _ leftUserNickname: String
+    ) async throws -> Void
 }
 
 // MARK: - DependencyKey
@@ -44,6 +67,16 @@ extension ChatRoomRemoteDataSource: DependencyKey {
         let db = Firestore.firestore()
 
         return ChatRoomRemoteDataSource(
+            getGroupChatRoom: { chatRoomId in
+                let docRef = db.collection("chatRooms").document(chatRoomId)
+                let snapshot = try await docRef.getDocument()
+
+                guard snapshot.exists else {
+                    return nil
+                }
+
+                return try ChatRoomResponseDTO.from(document: snapshot).toModel()
+            },
             getDirectChatRoom: { myUserId, otherUserId in
                 let chatRoomId = ChatRoom.directChatRoomId(uid1: myUserId, uid2: otherUserId)
                 let docRef = db.collection("chatRooms").document(chatRoomId)
@@ -251,6 +284,205 @@ extension ChatRoomRemoteDataSource: DependencyKey {
 
                 // index 오름차순 정렬 (UI 표시용)
                 return messages.sorted { $0.index < $1.index }
+            },
+            createGroupChatRoomAndSendMessage: { chatRoomId, userIds, senderId, content in
+                let chatRoomRef = db.collection("chatRooms").document(chatRoomId)
+                let messagesRef = chatRoomRef.collection("messages")
+                let now = Timestamp()
+
+                // Batch write로 채팅방 생성 + 첫 메시지 + 유저 문서 업데이트
+                let batch = db.batch()
+
+                // 1. 채팅방 문서 생성
+                let chatRoomData: [String: Any] = [
+                    "type": "group",
+                    "lastMessage": content,
+                    "lastMessageAt": now,
+                    "index": 1,
+                    "userHistory": userIds,
+                    "activeUsers": Dictionary(uniqueKeysWithValues: userIds.map { ($0, now) })
+                ]
+                batch.setData(chatRoomData, forDocument: chatRoomRef)
+
+                // 2. 첫 메시지 생성
+                let newMessageRef = messagesRef.document()
+                let messageData: [String: Any] = [
+                    "index": 1,
+                    "senderId": senderId,
+                    "type": "text",
+                    "content": content,
+                    "mediaUrls": [],
+                    "createdAt": now
+                ]
+                batch.setData(messageData, forDocument: newMessageRef)
+
+                // 3. 각 유저의 chatRooms 배열에 추가
+                for userId in userIds {
+                    let userRef = db.collection("users").document(userId)
+                    batch.updateData([
+                        "chatRooms": FieldValue.arrayUnion([chatRoomId])
+                    ], forDocument: userRef)
+                }
+
+                try await batch.commit()
+            },
+            inviteToGroupChat: { chatRoomId, invitedUserIds in
+                let chatRoomRef = db.collection("chatRooms").document(chatRoomId)
+                let now = Timestamp()
+
+                // 트랜잭션으로 처리
+                _ = try await db.runTransaction { transaction, errorPointer in
+                    // 1. 채팅방 문서 조회
+                    let chatRoomSnapshot: DocumentSnapshot
+                    do {
+                        chatRoomSnapshot = try transaction.getDocument(chatRoomRef)
+                    } catch let fetchError as NSError {
+                        errorPointer?.pointee = fetchError
+                        return nil
+                    }
+
+                    guard chatRoomSnapshot.exists,
+                          let data = chatRoomSnapshot.data() else {
+                        let error = NSError(
+                            domain: "ChatRoomRemoteDataSource",
+                            code: -1,
+                            userInfo: [NSLocalizedDescriptionKey: "ChatRoom not found"]
+                        )
+                        errorPointer?.pointee = error
+                        return nil
+                    }
+
+                    // 2. userHistory 업데이트
+                    var userHistory = data["userHistory"] as? [String] ?? []
+                    for userId in invitedUserIds {
+                        if !userHistory.contains(userId) {
+                            userHistory.append(userId)
+                        }
+                    }
+
+                    // 3. activeUsers에 초대된 유저 추가 + userHistory 업데이트
+                    var updateData: [String: Any] = ["userHistory": userHistory]
+                    for userId in invitedUserIds {
+                        updateData["activeUsers.\(userId)"] = now
+                    }
+                    transaction.updateData(updateData, forDocument: chatRoomRef)
+
+                    // 4. 각 초대된 유저의 chatRooms 배열에 추가
+                    for userId in invitedUserIds {
+                        let userRef = db.collection("users").document(userId)
+                        transaction.updateData([
+                            "chatRooms": FieldValue.arrayUnion([chatRoomId])
+                        ], forDocument: userRef)
+                    }
+
+                    return nil
+                }
+            },
+            sendSystemMessage: { chatRoomId, content in
+                let chatRoomRef = db.collection("chatRooms").document(chatRoomId)
+                let messagesRef = chatRoomRef.collection("messages")
+
+                // 트랜잭션으로 index 증가 + 시스템 메시지 추가
+                _ = try await db.runTransaction { transaction, errorPointer in
+                    let chatRoomSnapshot: DocumentSnapshot
+                    do {
+                        chatRoomSnapshot = try transaction.getDocument(chatRoomRef)
+                    } catch let fetchError as NSError {
+                        errorPointer?.pointee = fetchError
+                        return nil
+                    }
+
+                    guard chatRoomSnapshot.exists,
+                          let data = chatRoomSnapshot.data() else {
+                        let error = NSError(
+                            domain: "ChatRoomRemoteDataSource",
+                            code: -1,
+                            userInfo: [NSLocalizedDescriptionKey: "ChatRoom not found"]
+                        )
+                        errorPointer?.pointee = error
+                        return nil
+                    }
+
+                    let currentIndex = data["index"] as? Int ?? 0
+                    let newIndex = currentIndex + 1
+                    let now = Timestamp()
+
+                    // 시스템 메시지 생성
+                    let newMessageRef = messagesRef.document()
+                    let messageData: [String: Any] = [
+                        "index": newIndex,
+                        "senderId": "system",
+                        "type": "system",
+                        "content": content,
+                        "mediaUrls": [],
+                        "createdAt": now
+                    ]
+
+                    transaction.setData(messageData, forDocument: newMessageRef)
+
+                    // chatRoom 문서 업데이트
+                    transaction.updateData([
+                        "index": newIndex,
+                        "lastMessage": content,
+                        "lastMessageAt": now
+                    ], forDocument: chatRoomRef)
+
+                    return nil
+                }
+            },
+            sendSystemMessageWithLeftUser: { chatRoomId, content, leftUserId, leftUserNickname in
+                let chatRoomRef = db.collection("chatRooms").document(chatRoomId)
+                let messagesRef = chatRoomRef.collection("messages")
+
+                // 트랜잭션으로 index 증가 + 시스템 메시지 추가 (나간 사용자 정보 포함)
+                _ = try await db.runTransaction { transaction, errorPointer in
+                    let chatRoomSnapshot: DocumentSnapshot
+                    do {
+                        chatRoomSnapshot = try transaction.getDocument(chatRoomRef)
+                    } catch let fetchError as NSError {
+                        errorPointer?.pointee = fetchError
+                        return nil
+                    }
+
+                    guard chatRoomSnapshot.exists,
+                          let data = chatRoomSnapshot.data() else {
+                        let error = NSError(
+                            domain: "ChatRoomRemoteDataSource",
+                            code: -1,
+                            userInfo: [NSLocalizedDescriptionKey: "ChatRoom not found"]
+                        )
+                        errorPointer?.pointee = error
+                        return nil
+                    }
+
+                    let currentIndex = data["index"] as? Int ?? 0
+                    let newIndex = currentIndex + 1
+                    let now = Timestamp()
+
+                    // 시스템 메시지 생성 (나간 사용자 정보 포함)
+                    let newMessageRef = messagesRef.document()
+                    let messageData: [String: Any] = [
+                        "index": newIndex,
+                        "senderId": "system",
+                        "type": "system",
+                        "content": content,
+                        "mediaUrls": [],
+                        "createdAt": now,
+                        "leftUserId": leftUserId,
+                        "leftUserNickname": leftUserNickname
+                    ]
+
+                    transaction.setData(messageData, forDocument: newMessageRef)
+
+                    // chatRoom 문서 업데이트
+                    transaction.updateData([
+                        "index": newIndex,
+                        "lastMessage": content,
+                        "lastMessageAt": now
+                    ], forDocument: chatRoomRef)
+
+                    return nil
+                }
             }
         )
     }()
