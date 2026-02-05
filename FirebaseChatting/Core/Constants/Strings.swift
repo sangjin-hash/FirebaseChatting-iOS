@@ -98,5 +98,19 @@ enum Strings {
         // Drawer
         static let participants = "참여 인원"
         static let inviteFriendsButton = "친구 초대하기"
+
+        // 미디어
+        static let fileSizeExceededTitle = "파일 크기 초과"
+        static func fileSizeExceededMessage(_ fileName: String) -> String {
+            "\(fileName) 파일이 10MB를 초과합니다."
+        }
+        static let uploadFailedTitle = "업로드 실패"
+        static let uploadFailedDeleteMessage = "이 미디어 파일을 삭제하시겠습니까?"
+        static let delete = "삭제"
+        static func mediaSelectedCount(_ count: Int) -> String {
+            "미디어 \(count)개 선택됨"
+        }
+        static let today = "오늘"
+        static let yesterday = "어제"
     }
 }

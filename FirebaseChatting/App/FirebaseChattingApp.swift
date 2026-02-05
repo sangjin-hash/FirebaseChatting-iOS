@@ -5,6 +5,7 @@
 //  Created by Sangjin Lee
 //
 
+import Kingfisher
 import SwiftUI
 import ComposableArchitecture
 
@@ -16,11 +17,29 @@ struct FirebaseChattingApp: App {
         AppFeature()
     }
 
+    init() {
+        configureKingfisherCache()
+    }
+
     var body: some Scene {
         WindowGroup {
             AuthenticatedView(
                 store: store.scope(state: \.auth, action: \.auth)
             )
         }
+    }
+
+    private func configureKingfisherCache() {
+        // 메모리 캐시 설정: 100MB
+        let cache = ImageCache.default
+        cache.memoryStorage.config.totalCostLimit = 100 * 1024 * 1024
+
+        // 디스크 캐시 설정: 500MB, 7일 만료
+        cache.diskStorage.config.sizeLimit = 500 * 1024 * 1024
+        cache.diskStorage.config.expiration = .days(7)
+
+        // 다운로더 타임아웃 설정
+        let downloader = ImageDownloader.default
+        downloader.downloadTimeout = 30
     }
 }

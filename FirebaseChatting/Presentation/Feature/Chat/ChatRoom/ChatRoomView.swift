@@ -5,30 +5,27 @@
 //  Created by Claude Code
 //
 
+import AVKit
+import PhotosUI
 import SwiftUI
 import ComposableArchitecture
 
 struct ChatRoomView: View {
     @Bindable var store: StoreOf<ChatRoomFeature>
+    @State private var selectedPhotosItems: [PhotosPickerItem] = []
+    @FocusState private var isTextFieldFocused: Bool
+    @State private var initialScrollDone = false
 
     var body: some View {
         ZStack {
             VStack(spacing: 0) {
-                // 메시지 목록
                 messageList
-
-                // 메시지 입력
                 messageInput
             }
 
-            // SideDrawerComponent (그룹 채팅일 때만)
+            // ChatRoomDrawer (그룹 채팅일 때만)
             if store.isGroupChat {
-                SideDrawerComponent(
-                    isOpen: $store.isDrawerOpen.sending(\.setDrawerOpen),
-                    headerTitle: Strings.Chat.participants
-                ) {
-                    drawerContent
-                }
+                ChatRoomDrawer(store: store)
             }
         }
         .navigationTitle(store.otherUser?.nickname ?? Strings.Common.noName)
@@ -65,79 +62,114 @@ struct ChatRoomView: View {
                 store.send(.reinviteConfirmed)
             }
         )
-    }
-
-    // MARK: - Drawer Content
-
-    private var drawerContent: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            // 참여 인원 목록
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(store.activeUserProfiles, id: \.id) { profile in
-                        UserRowComponent<EmptyView>(
-                            profile: profile,
-                            imageSize: 44,
-                            caption: profile.id == store.currentUserId ? Strings.Common.me : nil
-                        )
-                        .padding(.horizontal)
-                        .padding(.vertical, 8)
-
-                        Divider()
-                            .padding(.leading, 60)
-                    }
+        .overlay {
+            uploadProgressOverlay
+        }
+        .fullScreenCover(
+            isPresented: Binding(
+                get: { store.fullScreenImageViewerState != nil },
+                set: { if !$0 { store.send(.dismissImageViewer) } }
+            )
+        ) {
+            if let viewerState = store.fullScreenImageViewerState {
+                FullScreenImageViewer(
+                    imageURLs: viewerState.imageURLs,
+                    currentIndex: Binding(
+                        get: { viewerState.currentIndex },
+                        set: { store.send(.imageViewerIndexChanged($0)) }
+                    )
+                ) {
+                    store.send(.dismissImageViewer)
                 }
             }
-
-            Spacer()
-
-            Divider()
-
-            // 친구 초대하기 버튼
-            Button {
-                store.send(.inviteFromDrawerTapped)
-            } label: {
-                HStack {
-                    Image(systemName: "person.badge.plus")
-                    Text(Strings.Chat.inviteFriendsButton)
+        }
+        .fullScreenCover(
+            isPresented: Binding(
+                get: { store.videoPlayerURL != nil },
+                set: { if !$0 { store.send(.dismissVideoPlayer) } }
+            )
+        ) {
+            if let url = store.videoPlayerURL {
+                VideoPlayerView(url: url) {
+                    store.send(.dismissVideoPlayer)
                 }
-                .frame(maxWidth: .infinity)
-                .padding()
             }
-            .disabled(store.invitableFriends.isEmpty)
+        }
+        .alert(
+            Strings.Chat.fileSizeExceededTitle,
+            isPresented: Binding(
+                get: { store.fileSizeExceededFileName != nil },
+                set: { if !$0 { store.send(.dismissFileSizeError) } }
+            )
+        ) {
+            Button(Strings.Common.confirm) {
+                store.send(.dismissFileSizeError)
+            }
+        } message: {
+            if let fileName = store.fileSizeExceededFileName {
+                Text(Strings.Chat.fileSizeExceededMessage(fileName))
+            }
+        }
+        .alert(
+            Strings.Chat.uploadFailedTitle,
+            isPresented: Binding(
+                get: { store.deleteConfirmationItemId != nil },
+                set: { if !$0 { store.send(.dismissDeleteConfirmation) } }
+            )
+        ) {
+            Button(Strings.Chat.delete, role: .destructive) {
+                if let itemId = store.deleteConfirmationItemId {
+                    store.send(.deleteFailedUpload(itemId: itemId))
+                }
+            }
+            Button(Strings.Common.cancel, role: .cancel) {
+                store.send(.dismissDeleteConfirmation)
+            }
+        } message: {
+            Text(Strings.Chat.uploadFailedDeleteMessage)
         }
     }
+}
 
-    // MARK: - Message List
+// MARK: - Message List
 
-    @State private var initialScrollDone = false
-
-    private var messageList: some View {
+private extension ChatRoomView {
+    var messageList: some View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(spacing: 8) {
-                    // 스크롤 상단 도달 시 이전 메시지 로드 트리거
                     if store.hasMoreMessages && !store.filteredMessages.isEmpty {
                         loadMoreTrigger
                     }
 
-                    // 메시지들
                     ForEach(groupedMessages, id: \.date) { group in
-                        // 날짜 구분선
-                        dateSeparator(date: group.date)
+                        DateSeparator(formattedDate: formatDate(group.date))
 
                         ForEach(group.messages) { message in
                             messageRow(message: message)
                                 .id(message.id)
                         }
                     }
+
+                    if !store.uploadingItems.isEmpty {
+                        UploadingMediaGrid(
+                            items: Array(store.uploadingItems),
+                            onRetry: { store.send(.retryUpload(itemId: $0)) },
+                            onDelete: { store.send(.showDeleteConfirmation(itemId: $0)) }
+                        )
+                        .id("uploading-grid")
+                    }
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    isTextFieldFocused = false
+                }
             }
-            .defaultScrollAnchor(.bottom)  // iOS 17+: 스크롤 시작점을 하단으로
+            .scrollDismissesKeyboard(.interactively)
+            .defaultScrollAnchor(.bottom)
             .onChange(of: store.filteredMessages.count) { oldCount, newCount in
-                // 초기 로드 시 최신 메시지(하단)로 스크롤
                 if oldCount == 0 && newCount > 0, !initialScrollDone {
                     initialScrollDone = true
                     if let lastId = store.filteredMessages.last?.id {
@@ -146,10 +178,28 @@ struct ChatRoomView: View {
                 }
             }
             .onChange(of: store.filteredMessages.last?.id) { oldValue, newValue in
-                // 새 메시지 도착 시 하단으로 스크롤 (초기 로드 이후)
                 if let id = newValue, oldValue != nil {
-                    withAnimation {
+                    Task {
                         proxy.scrollTo(id, anchor: .bottom)
+                    }
+                }
+            }
+            .onChange(of: store.uploadingItems.isEmpty) { wasEmpty, isEmpty in
+                if wasEmpty && !isEmpty {
+                    Task {
+                        proxy.scrollTo("uploading-grid", anchor: .bottom)
+                    }
+                }
+            }
+            .onChange(of: store.scrollToBottomTrigger) { _, newValue in
+                if newValue != nil {
+                    for delay in [0.3, 0.6, 1.0] {
+                        Task {
+                            try? await Task.sleep(for: .seconds(delay))
+                            if let lastId = store.filteredMessages.last?.id {
+                                proxy.scrollTo(lastId, anchor: .bottom)
+                            }
+                        }
                     }
                 }
             }
@@ -161,9 +211,7 @@ struct ChatRoomView: View {
         }
     }
 
-    // MARK: - Load More Trigger
-
-    private var loadMoreTrigger: some View {
+    var loadMoreTrigger: some View {
         Group {
             if store.isLoadingMore {
                 ProgressView()
@@ -179,146 +227,252 @@ struct ChatRoomView: View {
         }
     }
 
-    // MARK: - Date Separator
-
-    private func dateSeparator(date: Date) -> some View {
-        HStack {
-            Rectangle()
-                .fill(Color.secondary.opacity(0.3))
-                .frame(height: 1)
-
-            Text(formatDate(date))
-                .font(.caption2)
-                .foregroundColor(.secondary)
-                .padding(.horizontal, 8)
-
-            Rectangle()
-                .fill(Color.secondary.opacity(0.3))
-                .frame(height: 1)
-        }
-        .padding(.vertical, 8)
-    }
-
-    // MARK: - Message Row
-
     @ViewBuilder
-    private func messageRow(message: Message) -> some View {
+    func messageRow(message: Message) -> some View {
         if message.isSystemMessage {
-            systemMessageView(message: message)
-        } else if message.isMine(myUserId: store.currentUserId) {
-            myMessageView(message: message)
-        } else {
-            otherMessageView(message: message)
-        }
-    }
-
-    // MARK: - System Message View
-
-    @ViewBuilder
-    private func systemMessageView(message: Message) -> some View {
-        if let leftUserId = message.leftUserId, let leftNickname = message.leftUserNickname {
-            // 나감 메시지 + 초대하기 링크
-            VStack(spacing: 4) {
-                Text(message.content ?? "")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-
-                Button {
-                    store.send(.reinviteUserTapped(userId: leftUserId, nickname: leftNickname))
-                } label: {
-                    Text(Strings.Chat.inviteUserLink(leftNickname))
-                        .font(.caption)
-                        .foregroundColor(.blue)
-                        .underline()
-                }
+            SystemMessageBubble(message: message) { userId, nickname in
+                store.send(.reinviteUserTapped(userId: userId, nickname: nickname))
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .background(Color.secondary.opacity(0.1))
-            .clipShape(RoundedRectangle(cornerRadius: 12))
-            .frame(maxWidth: .infinity)
+        } else if message.isMine(myUserId: store.currentUserId) {
+            MyMessageBubble(
+                message: message,
+                formattedTime: formatTime(message.createdAt),
+                onImageTapped: { urls, index in
+                    store.send(.imageTapped(imageURLs: urls, index: index))
+                },
+                onVideoTapped: { url in
+                    store.send(.videoTapped(url))
+                }
+            )
         } else {
-            // 일반 시스템 메시지
-            Text(message.content ?? "")
-                .font(.caption)
-                .foregroundColor(.secondary)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .background(Color.secondary.opacity(0.1))
-                .clipShape(Capsule())
-                .frame(maxWidth: .infinity)
+            OtherMessageBubble(
+                message: message,
+                formattedTime: formatTime(message.createdAt),
+                onImageTapped: { urls, index in
+                    store.send(.imageTapped(imageURLs: urls, index: index))
+                },
+                onVideoTapped: { url in
+                    store.send(.videoTapped(url))
+                }
+            )
         }
     }
+}
 
-    // MARK: - My Message View
+// MARK: - Message Input
 
-    private func myMessageView(message: Message) -> some View {
-        HStack(alignment: .bottom, spacing: 4) {
-            Spacer(minLength: 60)
+private extension ChatRoomView {
+    var messageInput: some View {
+        VStack(spacing: 0) {
+            if !store.selectedMediaItems.isEmpty {
+                selectedMediaPreview
+            }
 
-            Text(formatTime(message.createdAt))
-                .font(.caption2)
-                .foregroundColor(.secondary)
+            HStack(spacing: 8) {
+                Button {
+                    store.send(.mediaButtonTapped)
+                } label: {
+                    Image(systemName: "plus.circle.fill")
+                        .font(.title2)
+                        .foregroundColor(store.isUploading ? .gray : .blue)
+                }
+                .disabled(store.isUploading)
 
-            Text(message.content ?? "")
-                .font(.body)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(Color.blue)
-                .foregroundColor(.white)
-                .clipShape(RoundedRectangle(cornerRadius: 16))
-        }
-    }
-
-    // MARK: - Other Message View
-
-    private func otherMessageView(message: Message) -> some View {
-        HStack(alignment: .bottom, spacing: 4) {
-            Text(message.content ?? "")
-                .font(.body)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(Color(.systemGray5))
-                .foregroundColor(.primary)
-                .clipShape(RoundedRectangle(cornerRadius: 16))
-
-            Text(formatTime(message.createdAt))
-                .font(.caption2)
-                .foregroundColor(.secondary)
-
-            Spacer(minLength: 60)
-        }
-    }
-
-    // MARK: - Message Input
-
-    private var messageInput: some View {
-        HStack(spacing: 12) {
-            TextField(Strings.Chat.messageInputPlaceholder, text: $store.inputText.sending(\.inputTextChanged))
+                TextField(
+                    store.hasSelectedMedia ? Strings.Chat.mediaSelectedCount(store.selectedMediaItems.count) : Strings.Chat.messageInputPlaceholder,
+                    text: $store.inputText.sending(\.inputTextChanged)
+                )
                 .textFieldStyle(.roundedBorder)
                 .submitLabel(.send)
+                .focused($isTextFieldFocused)
                 .onSubmit {
-                    store.send(.sendButtonTapped)
+                    if store.hasSelectedMedia {
+                        store.send(.sendMediaButtonTapped)
+                    } else {
+                        store.send(.sendButtonTapped)
+                    }
                 }
+                .disabled(store.hasSelectedMedia)
 
-            Button {
-                store.send(.sendButtonTapped)
-            } label: {
-                Image(systemName: "paperplane.fill")
-                    .foregroundColor(.white)
-                    .frame(width: 36, height: 36)
-                    .background(store.canSendMessage ? Color.blue : Color.blue.opacity(0.5))
-                    .clipShape(Circle())
+                Button {
+                    if store.hasSelectedMedia {
+                        store.send(.sendMediaButtonTapped)
+                    } else {
+                        store.send(.sendButtonTapped)
+                    }
+                } label: {
+                    if store.isUploading {
+                        ProgressView()
+                            .frame(width: 36, height: 36)
+                    } else {
+                        Image(systemName: "paperplane.fill")
+                            .foregroundColor(.white)
+                            .frame(width: 36, height: 36)
+                            .background(store.canSendAny ? Color.blue : Color.blue.opacity(0.5))
+                            .clipShape(Circle())
+                    }
+                }
+                .disabled(!store.canSendAny || store.isUploading)
             }
-            .disabled(!store.canSendMessage)
+            .padding(.horizontal)
+            .padding(.vertical, 8)
         }
-        .padding()
         .background(.ultraThinMaterial)
+        .photosPicker(
+            isPresented: $store.isMediaPickerPresented.sending(\.setMediaPickerPresented),
+            selection: $selectedPhotosItems,
+            maxSelectionCount: store.remainingMediaCount,
+            matching: .any(of: [.images, .videos])
+        )
+        .onChange(of: selectedPhotosItems) { _, newItems in
+            Task {
+                await loadSelectedMedia(from: newItems)
+            }
+        }
     }
 
-    // MARK: - Grouped Messages
+    var selectedMediaPreview: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(store.selectedMediaItems) { item in
+                    ZStack(alignment: .topTrailing) {
+                        if item.type == .image, let uiImage = UIImage(data: item.data) {
+                            Image(uiImage: uiImage)
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                                .frame(width: 60, height: 60)
+                                .clipShape(RoundedRectangle(cornerRadius: 8))
+                        } else if let thumbnail = item.thumbnail, let uiImage = UIImage(data: thumbnail) {
+                            Image(uiImage: uiImage)
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                                .frame(width: 60, height: 60)
+                                .clipShape(RoundedRectangle(cornerRadius: 8))
+                                .overlay {
+                                    Image(systemName: "video.fill")
+                                        .foregroundColor(.white)
+                                        .font(.caption)
+                                        .shadow(radius: 2)
+                                }
+                        } else {
+                            Rectangle()
+                                .fill(Color.gray.opacity(0.3))
+                                .frame(width: 60, height: 60)
+                                .clipShape(RoundedRectangle(cornerRadius: 8))
+                                .overlay {
+                                    Image(systemName: "video.fill")
+                                        .foregroundColor(.white)
+                                }
+                        }
 
-    private var groupedMessages: [MessageGroup] {
+                        Button {
+                            store.send(.removeSelectedMedia(item.id))
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 18))
+                                .foregroundColor(.white)
+                                .background(Circle().fill(Color.black.opacity(0.5)))
+                        }
+                        .offset(x: 4, y: -4)
+                    }
+                }
+            }
+            .padding(.horizontal)
+            .padding(.vertical, 8)
+        }
+        .frame(height: 76)
+        .background(Color(.systemGray6))
+    }
+
+    @ViewBuilder
+    var uploadProgressOverlay: some View {
+        EmptyView()
+    }
+}
+
+// MARK: - Media Loading
+
+private extension ChatRoomView {
+    func loadSelectedMedia(from items: [PhotosPickerItem]) async {
+        var selectedItems: [SelectedMediaItem] = []
+
+        for item in items {
+            let isVideo = item.supportedContentTypes.contains(where: { $0.conforms(to: .movie) })
+
+            if isVideo {
+                if let movie = try? await item.loadTransferable(type: VideoTransferable.self) {
+                    let data = movie.data
+
+                    if data.count > store.maxFileSizeBytes {
+                        await MainActor.run {
+                            store.send(.fileSizeExceeded(item.itemIdentifier ?? "동영상"))
+                        }
+                        continue
+                    }
+
+                    var thumbnail: Data?
+                    if let tempURL = movie.url {
+                        thumbnail = try? await generateThumbnail(from: tempURL)
+                    }
+
+                    let selectedItem = SelectedMediaItem(
+                        id: UUID().uuidString,
+                        type: .video,
+                        data: data,
+                        thumbnail: thumbnail,
+                        fileName: "\(UUID().uuidString).mp4",
+                        mimeType: "video/mp4"
+                    )
+                    selectedItems.append(selectedItem)
+                }
+            } else {
+                if let data = try? await item.loadTransferable(type: Data.self) {
+                    if data.count > store.maxFileSizeBytes {
+                        await MainActor.run {
+                            store.send(.fileSizeExceeded(item.itemIdentifier ?? "이미지"))
+                        }
+                        continue
+                    }
+
+                    let selectedItem = SelectedMediaItem(
+                        id: UUID().uuidString,
+                        type: .image,
+                        data: data,
+                        thumbnail: nil,
+                        fileName: "\(UUID().uuidString).jpg",
+                        mimeType: "image/jpeg"
+                    )
+                    selectedItems.append(selectedItem)
+                }
+            }
+        }
+
+        await MainActor.run {
+            if !selectedItems.isEmpty {
+                store.send(.mediaSelected(selectedItems))
+                store.send(.sendMediaButtonTapped)
+            }
+            selectedPhotosItems = []
+        }
+    }
+
+    func generateThumbnail(from url: URL) async throws -> Data {
+        let asset = AVAsset(url: url)
+        let generator = AVAssetImageGenerator(asset: asset)
+        generator.appliesPreferredTrackTransform = true
+        generator.maximumSize = CGSize(width: 200, height: 200)
+
+        let time = CMTime(seconds: 0.5, preferredTimescale: 600)
+        let (cgImage, _) = try await generator.image(at: time)
+        let uiImage = UIImage(cgImage: cgImage)
+        return uiImage.jpegData(compressionQuality: 0.7) ?? Data()
+    }
+}
+
+// MARK: - Helpers
+
+private extension ChatRoomView {
+    var groupedMessages: [MessageGroup] {
         let calendar = Calendar.current
         var groups: [MessageGroup] = []
         var currentDate: Date?
@@ -346,23 +500,21 @@ struct ChatRoomView: View {
         return groups
     }
 
-    // MARK: - Helpers
-
-    private func formatDate(_ date: Date) -> String {
+    func formatDate(_ date: Date) -> String {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "ko_KR")
 
         if Calendar.current.isDateInToday(date) {
-            return "오늘"
+            return Strings.Chat.today
         } else if Calendar.current.isDateInYesterday(date) {
-            return "어제"
+            return Strings.Chat.yesterday
         } else {
             formatter.dateFormat = "yyyy년 M월 d일"
             return formatter.string(from: date)
         }
     }
 
-    private func formatTime(_ date: Date) -> String {
+    func formatTime(_ date: Date) -> String {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "ko_KR")
         formatter.dateFormat = "a h:mm"
@@ -370,9 +522,9 @@ struct ChatRoomView: View {
     }
 }
 
-// MARK: - Message Group
+// MARK: - MessageGroup
 
-private struct MessageGroup: Equatable {
+struct MessageGroup: Equatable {
     let date: Date
     let messages: [Message]
 }
