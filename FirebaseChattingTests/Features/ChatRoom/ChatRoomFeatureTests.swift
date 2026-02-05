@@ -316,10 +316,10 @@ struct ChatRoomFeatureTests {
         let store = TestStore(initialState: state) {
             ChatRoomFeature()
         } withDependencies: {
-            $0.chatRoomRepository.fetchMessages = { chatRoomId, beforeIndex, limit in
+            $0.chatRoomRepository.fetchMessages = { chatRoomId, beforeCreatedAt, limit in
                 #expect(chatRoomId == "chatroom-1")
-                // 가장 오래된 메시지(index가 작은)의 index보다 작은 메시지를 가져옴
-                #expect(beforeIndex == existingMessages.first?.index)
+                // 가장 오래된 메시지의 createdAt보다 이전 메시지를 가져옴
+                #expect(beforeCreatedAt == existingMessages.first?.createdAt)
                 #expect(limit == 30)
                 return olderMessages
             }
@@ -331,7 +331,7 @@ struct ChatRoomFeatureTests {
         }
 
         // Then
-        await store.receive(\.moreMessagesLoaded) {
+        await store.receive(\.moreMessagesLoaded.success) {
             $0.isLoadingMore = false
             // 이전 메시지가 앞에 추가됨
             $0.messages = olderMessages + existingMessages
@@ -364,7 +364,7 @@ struct ChatRoomFeatureTests {
         }
 
         // Then
-        await store.receive(\.moreMessagesLoaded) {
+        await store.receive(\.moreMessagesLoaded.success) {
             $0.isLoadingMore = false
             $0.hasMoreMessages = false
         }
@@ -529,8 +529,8 @@ struct ChatRoomFeatureTests {
 
         // When
         await store.send(.messagesUpdated(messagesWithSystem)) {
-            // Then
-            $0.messages = messagesWithSystem.sorted { $0.index < $1.index }
+            // Then - createdAt 기준 오름차순 정렬
+            $0.messages = messagesWithSystem.sorted { $0.createdAt < $1.createdAt }
             $0.isLoading = false
         }
     }
