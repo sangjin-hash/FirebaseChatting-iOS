@@ -57,13 +57,39 @@ nonisolated struct ChatRoomRepository: Sendable {
         _ leftUserId: String,
         _ leftUserNickname: String
     ) async throws -> Void
+
+    // MARK: - Media Message Methods
+
+    /// 미디어 메시지 전송 (기존 채팅방)
+    var sendMediaMessage: @Sendable (
+        _ chatRoomId: String,
+        _ senderId: String,
+        _ type: MessageType,
+        _ mediaUrls: [String]
+    ) async throws -> Void
+
+    /// 채팅방 생성 + 첫 미디어 메시지 전송 (1:1)
+    var createChatRoomAndSendMediaMessage: @Sendable (
+        _ chatRoomId: String,
+        _ userIds: [String],
+        _ senderId: String,
+        _ type: MessageType,
+        _ mediaUrls: [String]
+    ) async throws -> Void
+
+    /// 그룹 채팅방 생성 + 첫 미디어 메시지 전송
+    var createGroupChatRoomAndSendMediaMessage: @Sendable (
+        _ chatRoomId: String,
+        _ userIds: [String],
+        _ senderId: String,
+        _ type: MessageType,
+        _ mediaUrls: [String]
+    ) async throws -> Void
 }
 
 // MARK: - Dependency Key
 
 extension ChatRoomRepository: DependencyKey {
-    nonisolated static let testValue = ChatRoomRepository()
-
     nonisolated static let liveValue: ChatRoomRepository = {
         @Dependency(\.chatRoomRemoteDataSource) var dataSource
 
@@ -100,6 +126,15 @@ extension ChatRoomRepository: DependencyKey {
             },
             sendSystemMessageWithLeftUser: { chatRoomId, content, leftUserId, leftUserNickname in
                 try await dataSource.sendSystemMessageWithLeftUser(chatRoomId, content, leftUserId, leftUserNickname)
+            },
+            sendMediaMessage: { chatRoomId, senderId, type, mediaUrls in
+                try await dataSource.sendMediaMessage(chatRoomId, senderId, type, mediaUrls)
+            },
+            createChatRoomAndSendMediaMessage: { chatRoomId, userIds, senderId, type, mediaUrls in
+                try await dataSource.createChatRoomAndSendMediaMessage(chatRoomId, userIds, senderId, type, mediaUrls)
+            },
+            createGroupChatRoomAndSendMediaMessage: { chatRoomId, userIds, senderId, type, mediaUrls in
+                try await dataSource.createGroupChatRoomAndSendMediaMessage(chatRoomId, userIds, senderId, type, mediaUrls)
             }
         )
     }()

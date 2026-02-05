@@ -58,6 +58,34 @@ nonisolated struct ChatRoomRemoteDataSource: Sendable {
         _ leftUserId: String,
         _ leftUserNickname: String
     ) async throws -> Void
+
+    // MARK: - Media Message Methods
+
+    /// 미디어 메시지 전송 (기존 채팅방)
+    var sendMediaMessage: @Sendable (
+        _ chatRoomId: String,
+        _ senderId: String,
+        _ type: MessageType,
+        _ mediaUrls: [String]
+    ) async throws -> Void
+
+    /// 채팅방 생성 + 첫 미디어 메시지 전송 (1:1)
+    var createChatRoomAndSendMediaMessage: @Sendable (
+        _ chatRoomId: String,
+        _ userIds: [String],
+        _ senderId: String,
+        _ type: MessageType,
+        _ mediaUrls: [String]
+    ) async throws -> Void
+
+    /// 그룹 채팅방 생성 + 첫 미디어 메시지 전송
+    var createGroupChatRoomAndSendMediaMessage: @Sendable (
+        _ chatRoomId: String,
+        _ userIds: [String],
+        _ senderId: String,
+        _ type: MessageType,
+        _ mediaUrls: [String]
+    ) async throws -> Void
 }
 
 // MARK: - DependencyKey
@@ -407,6 +435,160 @@ extension ChatRoomRemoteDataSource: DependencyKey {
                 ]
 
                 try await messagesRef.addDocument(data: messageData)
+            },
+            sendMediaMessage: { chatRoomId, senderId, type, mediaUrls in
+                let chatRoomRef = db.collection("chatRooms").document(chatRoomId)
+                let messagesRef = chatRoomRef.collection("messages")
+
+                // 트랜잭션으로 index 증가 + 메시지 추가 + 나간 유저 자동 재입장
+                _ = try await db.runTransaction { transaction, errorPointer in
+                    let chatRoomSnapshot: DocumentSnapshot
+                    do {
+                        chatRoomSnapshot = try transaction.getDocument(chatRoomRef)
+                    } catch let fetchError as NSError {
+                        errorPointer?.pointee = fetchError
+                        return nil
+                    }
+
+                    guard chatRoomSnapshot.exists,
+                          let data = chatRoomSnapshot.data() else {
+                        let error = NSError(
+                            domain: "ChatRoomRemoteDataSource",
+                            code: -1,
+                            userInfo: [NSLocalizedDescriptionKey: "ChatRoom not found"]
+                        )
+                        errorPointer?.pointee = error
+                        return nil
+                    }
+
+                    let currentIndex = data["index"] as? Int ?? 0
+                    let newIndex = currentIndex + 1
+                    let now = Timestamp()
+
+                    // userHistory에 있지만 activeUsers에 없는 유저들 찾기 (나간 유저들)
+                    let userHistory = data["userHistory"] as? [String] ?? []
+                    let activeUsers = data["activeUsers"] as? [String: Any] ?? [:]
+                    let leftUsers = userHistory.filter { !activeUsers.keys.contains($0) }
+
+                    // 나간 유저들을 다시 activeUsers에 추가하고 chatRooms 배열 업데이트
+                    for leftUserId in leftUsers {
+                        transaction.updateData([
+                            "activeUsers.\(leftUserId)": now
+                        ], forDocument: chatRoomRef)
+
+                        let userRef = db.collection("users").document(leftUserId)
+                        transaction.updateData([
+                            "chatRooms": FieldValue.arrayUnion([chatRoomId])
+                        ], forDocument: userRef)
+                    }
+
+                    // 새 메시지 문서 생성
+                    let newMessageRef = messagesRef.document()
+                    let messageData: [String: Any] = [
+                        "index": newIndex,
+                        "senderId": senderId,
+                        "type": type.rawValue,
+                        "content": NSNull(),
+                        "mediaUrls": mediaUrls,
+                        "createdAt": now
+                    ]
+
+                    transaction.setData(messageData, forDocument: newMessageRef)
+
+                    // chatRoom 문서 업데이트 (lastMessage는 미디어 타입에 따라 표시)
+                    let lastMessage = type == .image ? "사진" : "동영상"
+                    transaction.updateData([
+                        "index": newIndex,
+                        "lastMessage": lastMessage,
+                        "lastMessageAt": now
+                    ], forDocument: chatRoomRef)
+
+                    return nil
+                }
+            },
+            createChatRoomAndSendMediaMessage: { chatRoomId, userIds, senderId, type, mediaUrls in
+                let chatRoomRef = db.collection("chatRooms").document(chatRoomId)
+                let messagesRef = chatRoomRef.collection("messages")
+                let now = Timestamp()
+                let lastMessage = type == .image ? "사진" : "동영상"
+
+                // Batch write로 채팅방 생성 + 첫 메시지 + 유저 문서 업데이트
+                let batch = db.batch()
+
+                // 1. 채팅방 문서 생성
+                let chatRoomData: [String: Any] = [
+                    "type": "direct",
+                    "lastMessage": lastMessage,
+                    "lastMessageAt": now,
+                    "index": 1,
+                    "userHistory": userIds,
+                    "activeUsers": Dictionary(uniqueKeysWithValues: userIds.map { ($0, now) })
+                ]
+                batch.setData(chatRoomData, forDocument: chatRoomRef)
+
+                // 2. 첫 메시지 생성
+                let newMessageRef = messagesRef.document()
+                let messageData: [String: Any] = [
+                    "index": 1,
+                    "senderId": senderId,
+                    "type": type.rawValue,
+                    "content": NSNull(),
+                    "mediaUrls": mediaUrls,
+                    "createdAt": now
+                ]
+                batch.setData(messageData, forDocument: newMessageRef)
+
+                // 3. 각 유저의 chatRooms 배열에 추가
+                for userId in userIds {
+                    let userRef = db.collection("users").document(userId)
+                    batch.updateData([
+                        "chatRooms": FieldValue.arrayUnion([chatRoomId])
+                    ], forDocument: userRef)
+                }
+
+                try await batch.commit()
+            },
+            createGroupChatRoomAndSendMediaMessage: { chatRoomId, userIds, senderId, type, mediaUrls in
+                let chatRoomRef = db.collection("chatRooms").document(chatRoomId)
+                let messagesRef = chatRoomRef.collection("messages")
+                let now = Timestamp()
+                let lastMessage = type == .image ? "사진" : "동영상"
+
+                // Batch write로 채팅방 생성 + 첫 메시지 + 유저 문서 업데이트
+                let batch = db.batch()
+
+                // 1. 채팅방 문서 생성
+                let chatRoomData: [String: Any] = [
+                    "type": "group",
+                    "lastMessage": lastMessage,
+                    "lastMessageAt": now,
+                    "index": 1,
+                    "userHistory": userIds,
+                    "activeUsers": Dictionary(uniqueKeysWithValues: userIds.map { ($0, now) })
+                ]
+                batch.setData(chatRoomData, forDocument: chatRoomRef)
+
+                // 2. 첫 메시지 생성
+                let newMessageRef = messagesRef.document()
+                let messageData: [String: Any] = [
+                    "index": 1,
+                    "senderId": senderId,
+                    "type": type.rawValue,
+                    "content": NSNull(),
+                    "mediaUrls": mediaUrls,
+                    "createdAt": now
+                ]
+                batch.setData(messageData, forDocument: newMessageRef)
+
+                // 3. 각 유저의 chatRooms 배열에 추가
+                for userId in userIds {
+                    let userRef = db.collection("users").document(userId)
+                    batch.updateData([
+                        "chatRooms": FieldValue.arrayUnion([chatRoomId])
+                    ], forDocument: userRef)
+                }
+
+                try await batch.commit()
             }
         )
     }()
