@@ -288,6 +288,63 @@ enum TestData {
         )
     ]
 
+    // MARK: - Media Messages
+
+    static let imageMessage = Message(
+        id: "msg-image-1",
+        index: 10,
+        senderId: "current-user-123",
+        type: .image,
+        content: nil,
+        mediaUrls: ["https://example.com/image1.jpg", "https://example.com/image2.jpg"],
+        createdAt: Date()
+    )
+
+    static let videoMessage = Message(
+        id: "msg-video-1",
+        index: 11,
+        senderId: "friend-1",
+        type: .video,
+        content: nil,
+        mediaUrls: ["https://example.com/video1.mp4"],
+        createdAt: Date().addingTimeInterval(60)
+    )
+
+    // MARK: - Media Items (for upload testing)
+
+    static let imageMediaItem1 = SelectedMediaItem(
+        id: "media-1",
+        type: .image,
+        data: Data(repeating: 0xFF, count: 1024),  // 1KB dummy data
+        thumbnail: nil,
+        fileName: "image1.jpg",
+        mimeType: "image/jpeg"
+    )
+
+    static let imageMediaItem2 = SelectedMediaItem(
+        id: "media-2",
+        type: .image,
+        data: Data(repeating: 0xAA, count: 1024),
+        thumbnail: nil,
+        fileName: "image2.png",
+        mimeType: "image/png"
+    )
+
+    static let videoMediaItem = SelectedMediaItem(
+        id: "media-3",
+        type: .video,
+        data: Data(repeating: 0xBB, count: 2048),  // 2KB dummy data
+        thumbnail: Data(repeating: 0xCC, count: 512),  // 썸네일
+        fileName: "video1.mp4",
+        mimeType: "video/mp4"
+    )
+
+    static let mixedMediaItems: [SelectedMediaItem] = [
+        imageMediaItem1,
+        imageMediaItem2,
+        videoMediaItem
+    ]
+
     // MARK: - User with multiple chatRooms
 
     static let currentUserWithMultipleChatRooms = User(
