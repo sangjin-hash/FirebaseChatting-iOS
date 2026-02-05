@@ -77,25 +77,6 @@ extension DependencyValues {
     }
 }
 
-// MARK: - Mock Helper
-
-extension APIClient {
-    static func mock(
-        get: @escaping @Sendable (_ endpoint: String) async throws -> Data = { _ in Data() },
-        post: @escaping @Sendable (_ endpoint: String, _ body: Data) async throws -> Data = { _, _ in Data() },
-        put: @escaping @Sendable (_ endpoint: String, _ body: Data) async throws -> Data = { _, _ in Data() },
-        delete: @escaping @Sendable (_ endpoint: String) async throws -> Void = { _ in },
-        patch: @escaping @Sendable (_ endpoint: String, _ body: Data) async throws -> Data = { _, _ in Data() }
-    ) -> Self {
-        APIClient(
-            get: get,
-            post: post,
-            put: put,
-            delete: delete,
-            patch: patch
-        )
-    }
-}
 
 // MARK: - HTTP Client
 
