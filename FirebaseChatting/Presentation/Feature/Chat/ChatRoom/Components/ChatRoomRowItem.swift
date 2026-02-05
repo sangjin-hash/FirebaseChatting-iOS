@@ -1,5 +1,5 @@
 //
-//  ChatRoomRowComponent.swift
+//  ChatRoomRowItem.swift
 //  FirebaseChatting
 //
 //  Created by Sangjin Lee

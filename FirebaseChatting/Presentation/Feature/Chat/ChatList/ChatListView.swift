@@ -89,7 +89,7 @@ struct ChatListView: View {
     private var chatRoomList: some View {
         List {
             ForEach(store.chatRooms) { chatRoom in
-                ChatRoomRowComponent(
+                ChatRoomRowItem(
                     chatRoom: chatRoom,
                     profile: store.chatRoomProfiles[chatRoom.id],
                     displayName: store.state.displayName(for: chatRoom),
