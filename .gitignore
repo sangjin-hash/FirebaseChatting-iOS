@@ -129,3 +129,4 @@ GoogleService-Info.plist
 # Secrets (API URLs, keys, etc.)
 **/Secrets.swift
 
+docs/
