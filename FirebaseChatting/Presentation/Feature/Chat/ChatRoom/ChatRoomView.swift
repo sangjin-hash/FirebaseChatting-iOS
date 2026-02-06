@@ -2,7 +2,7 @@
 //  ChatRoomView.swift
 //  FirebaseChatting
 //
-//  Created by Claude Code
+//  Created by Sangjin Lee
 //
 
 import AVKit
@@ -37,15 +37,7 @@ struct ChatRoomView: View {
         .toolbar {
             if store.isGroupChat {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        store.send(.drawerButtonTapped)
-                    } label: {
-                        if store.isInviting {
-                            ProgressView()
-                        } else {
-                            Image(systemName: "line.3.horizontal")
-                        }
-                    }
+                    drawerButton
                 }
             }
         }
@@ -53,10 +45,7 @@ struct ChatRoomView: View {
             InviteFriendsView(store: inviteFriendsStore)
         }
         .confirmDialog(
-            isPresented: Binding(
-                get: { store.reinviteConfirmTarget != nil },
-                set: { if !$0 { store.send(.reinviteConfirmDismissed) } }
-            ),
+            isPresented: reinviteConfirmBinding,
             message: store.reinviteConfirmTarget.map { Strings.Chat.reinviteConfirmMessage($0.nickname) } ?? "",
             onConfirm: {
                 store.send(.reinviteConfirmed)
@@ -65,68 +54,146 @@ struct ChatRoomView: View {
         .overlay {
             uploadProgressOverlay
         }
-        .fullScreenCover(
-            isPresented: Binding(
-                get: { store.fullScreenImageViewerState != nil },
-                set: { if !$0 { store.send(.dismissImageViewer) } }
-            )
-        ) {
-            if let viewerState = store.fullScreenImageViewerState {
-                FullScreenImageViewer(
-                    imageURLs: viewerState.imageURLs,
-                    currentIndex: Binding(
-                        get: { viewerState.currentIndex },
-                        set: { store.send(.imageViewerIndexChanged($0)) }
-                    )
-                ) {
-                    store.send(.dismissImageViewer)
-                }
+        .modifier(ChatRoomFullScreenCovers(store: store))
+        .modifier(ChatRoomAlerts(store: store))
+    }
+}
+
+// MARK: - Bindings & Subviews
+
+private extension ChatRoomView {
+    var reinviteConfirmBinding: Binding<Bool> {
+        Binding(
+            get: { store.reinviteConfirmTarget != nil },
+            set: { if !$0 { store.send(.reinviteConfirmDismissed) } }
+        )
+    }
+
+    @ViewBuilder
+    var drawerButton: some View {
+        Button {
+            store.send(.drawer(.openButtonTapped))
+        } label: {
+            if store.isInviting {
+                ProgressView()
+            } else {
+                Image(systemName: "line.3.horizontal")
             }
         }
-        .fullScreenCover(
-            isPresented: Binding(
-                get: { store.videoPlayerURL != nil },
-                set: { if !$0 { store.send(.dismissVideoPlayer) } }
-            )
-        ) {
-            if let url = store.videoPlayerURL {
-                VideoPlayerView(url: url) {
-                    store.send(.dismissVideoPlayer)
-                }
+    }
+}
+
+// MARK: - FullScreenCover ViewModifier
+
+private struct ChatRoomFullScreenCovers: ViewModifier {
+    @Bindable var store: StoreOf<ChatRoomFeature>
+
+    func body(content: Content) -> some View {
+        content
+            .fullScreenCover(isPresented: imageViewerBinding) {
+                imageViewerContent
+            }
+            .fullScreenCover(isPresented: videoPlayerBinding) {
+                videoPlayerContent
+            }
+    }
+
+    private var imageViewerBinding: Binding<Bool> {
+        Binding(
+            get: { store.mediaViewer.fullScreenImageViewerState != nil },
+            set: { if !$0 { store.send(.mediaViewer(.dismissImageViewer)) } }
+        )
+    }
+
+    private var videoPlayerBinding: Binding<Bool> {
+        Binding(
+            get: { store.mediaViewer.videoPlayerURL != nil },
+            set: { if !$0 { store.send(.mediaViewer(.dismissVideoPlayer)) } }
+        )
+    }
+
+    @ViewBuilder
+    private var imageViewerContent: some View {
+        if let viewerState = store.mediaViewer.fullScreenImageViewerState {
+            FullScreenImageViewer(
+                imageURLs: viewerState.imageURLs,
+                currentIndex: Binding(
+                    get: { viewerState.currentIndex },
+                    set: { store.send(.mediaViewer(.imageViewerIndexChanged($0))) }
+                )
+            ) {
+                store.send(.mediaViewer(.dismissImageViewer))
             }
         }
-        .alert(
-            Strings.Chat.fileSizeExceededTitle,
-            isPresented: Binding(
-                get: { store.fileSizeExceededFileName != nil },
-                set: { if !$0 { store.send(.dismissFileSizeError) } }
-            )
-        ) {
-            Button(Strings.Common.confirm) {
-                store.send(.dismissFileSizeError)
-            }
-        } message: {
-            if let fileName = store.fileSizeExceededFileName {
-                Text(Strings.Chat.fileSizeExceededMessage(fileName))
+    }
+
+    @ViewBuilder
+    private var videoPlayerContent: some View {
+        if let url = store.mediaViewer.videoPlayerURL {
+            VideoPlayerView(url: url) {
+                store.send(.mediaViewer(.dismissVideoPlayer))
             }
         }
-        .alert(
-            Strings.Chat.uploadFailedTitle,
-            isPresented: Binding(
-                get: { store.deleteConfirmationItemId != nil },
-                set: { if !$0 { store.send(.dismissDeleteConfirmation) } }
-            )
-        ) {
-            Button(Strings.Chat.delete, role: .destructive) {
-                if let itemId = store.deleteConfirmationItemId {
-                    store.send(.deleteFailedUpload(itemId: itemId))
+    }
+}
+
+// MARK: - Alert ViewModifier
+
+private struct ChatRoomAlerts: ViewModifier {
+    @Bindable var store: StoreOf<ChatRoomFeature>
+
+    func body(content: Content) -> some View {
+        content
+            .alert(
+                Strings.Chat.fileSizeExceededTitle,
+                isPresented: fileSizeErrorBinding
+            ) {
+                Button(Strings.Common.confirm) {
+                    store.send(.mediaUpload(.dismissFileSizeError))
                 }
+            } message: {
+                fileSizeErrorMessage
             }
-            Button(Strings.Common.cancel, role: .cancel) {
-                store.send(.dismissDeleteConfirmation)
+            .alert(
+                Strings.Chat.uploadFailedTitle,
+                isPresented: deleteConfirmationBinding
+            ) {
+                deleteConfirmationButtons
+            } message: {
+                Text(Strings.Chat.uploadFailedDeleteMessage)
             }
-        } message: {
-            Text(Strings.Chat.uploadFailedDeleteMessage)
+    }
+
+    private var fileSizeErrorBinding: Binding<Bool> {
+        Binding(
+            get: { store.mediaUpload.fileSizeExceededFileName != nil },
+            set: { if !$0 { store.send(.mediaUpload(.dismissFileSizeError)) } }
+        )
+    }
+
+    private var deleteConfirmationBinding: Binding<Bool> {
+        Binding(
+            get: { store.mediaUpload.deleteConfirmationItemId != nil },
+            set: { if !$0 { store.send(.mediaUpload(.dismissDeleteConfirmation)) } }
+        )
+    }
+
+    @ViewBuilder
+    private var fileSizeErrorMessage: some View {
+        if let fileName = store.mediaUpload.fileSizeExceededFileName {
+            Text(Strings.Chat.fileSizeExceededMessage(fileName))
+        }
+    }
+
+    @ViewBuilder
+    private var deleteConfirmationButtons: some View {
+        Button(Strings.Chat.delete, role: .destructive) {
+            if let itemId = store.mediaUpload.deleteConfirmationItemId {
+                store.send(.mediaUpload(.deleteFailedUpload(itemId: itemId)))
+            }
+        }
+        Button(Strings.Common.cancel, role: .cancel) {
+            store.send(.mediaUpload(.dismissDeleteConfirmation))
         }
     }
 }
@@ -151,11 +218,11 @@ private extension ChatRoomView {
                         }
                     }
 
-                    if !store.uploadingItems.isEmpty {
+                    if !store.mediaUpload.uploadingItems.isEmpty {
                         UploadingMediaGrid(
-                            items: Array(store.uploadingItems),
+                            items: Array(store.mediaUpload.uploadingItems),
                             onRetry: { store.send(.retryUpload(itemId: $0)) },
-                            onDelete: { store.send(.showDeleteConfirmation(itemId: $0)) }
+                            onDelete: { store.send(.mediaUpload(.showDeleteConfirmation(itemId: $0))) }
                         )
                         .id("uploading-grid")
                     }
@@ -184,14 +251,14 @@ private extension ChatRoomView {
                     }
                 }
             }
-            .onChange(of: store.uploadingItems.isEmpty) { wasEmpty, isEmpty in
+            .onChange(of: store.mediaUpload.uploadingItems.isEmpty) { wasEmpty, isEmpty in
                 if wasEmpty && !isEmpty {
                     Task {
                         proxy.scrollTo("uploading-grid", anchor: .bottom)
                     }
                 }
             }
-            .onChange(of: store.scrollToBottomTrigger) { _, newValue in
+            .onChange(of: store.mediaUpload.scrollToBottomTrigger) { _, newValue in
                 if newValue != nil {
                     for delay in [0.3, 0.6, 1.0] {
                         Task {
@@ -238,10 +305,10 @@ private extension ChatRoomView {
                 message: message,
                 formattedTime: formatTime(message.createdAt),
                 onImageTapped: { urls, index in
-                    store.send(.imageTapped(imageURLs: urls, index: index))
+                    store.send(.mediaViewer(.imageTapped(imageURLs: urls, index: index)))
                 },
                 onVideoTapped: { url in
-                    store.send(.videoTapped(url))
+                    store.send(.mediaViewer(.videoTapped(url)))
                 }
             )
         } else {
@@ -249,10 +316,10 @@ private extension ChatRoomView {
                 message: message,
                 formattedTime: formatTime(message.createdAt),
                 onImageTapped: { urls, index in
-                    store.send(.imageTapped(imageURLs: urls, index: index))
+                    store.send(.mediaViewer(.imageTapped(imageURLs: urls, index: index)))
                 },
                 onVideoTapped: { url in
-                    store.send(.videoTapped(url))
+                    store.send(.mediaViewer(.videoTapped(url)))
                 }
             )
         }
@@ -264,44 +331,44 @@ private extension ChatRoomView {
 private extension ChatRoomView {
     var messageInput: some View {
         VStack(spacing: 0) {
-            if !store.selectedMediaItems.isEmpty {
+            if !store.mediaUpload.selectedMediaItems.isEmpty {
                 selectedMediaPreview
             }
 
             HStack(spacing: 8) {
                 Button {
-                    store.send(.mediaButtonTapped)
+                    store.send(.mediaUpload(.mediaButtonTapped))
                 } label: {
                     Image(systemName: "plus.circle.fill")
                         .font(.title2)
-                        .foregroundColor(store.isUploading ? .gray : .blue)
+                        .foregroundColor(store.mediaUpload.isUploading ? .gray : .blue)
                 }
-                .disabled(store.isUploading)
+                .disabled(store.mediaUpload.isUploading)
 
                 TextField(
-                    store.hasSelectedMedia ? Strings.Chat.mediaSelectedCount(store.selectedMediaItems.count) : Strings.Chat.messageInputPlaceholder,
+                    store.mediaUpload.hasSelectedMedia ? Strings.Chat.mediaSelectedCount(store.mediaUpload.selectedMediaItems.count) : Strings.Chat.messageInputPlaceholder,
                     text: $store.inputText.sending(\.inputTextChanged)
                 )
                 .textFieldStyle(.roundedBorder)
                 .submitLabel(.send)
                 .focused($isTextFieldFocused)
                 .onSubmit {
-                    if store.hasSelectedMedia {
-                        store.send(.sendMediaButtonTapped)
+                    if store.mediaUpload.hasSelectedMedia {
+                        store.send(.mediaUpload(.sendMediaButtonTapped))
                     } else {
                         store.send(.sendButtonTapped)
                     }
                 }
-                .disabled(store.hasSelectedMedia)
+                .disabled(store.mediaUpload.hasSelectedMedia)
 
                 Button {
-                    if store.hasSelectedMedia {
-                        store.send(.sendMediaButtonTapped)
+                    if store.mediaUpload.hasSelectedMedia {
+                        store.send(.mediaUpload(.sendMediaButtonTapped))
                     } else {
                         store.send(.sendButtonTapped)
                     }
                 } label: {
-                    if store.isUploading {
+                    if store.mediaUpload.isUploading {
                         ProgressView()
                             .frame(width: 36, height: 36)
                     } else {
@@ -312,16 +379,16 @@ private extension ChatRoomView {
                             .clipShape(Circle())
                     }
                 }
-                .disabled(!store.canSendAny || store.isUploading)
+                .disabled(!store.canSendAny || store.mediaUpload.isUploading)
             }
             .padding(.horizontal)
             .padding(.vertical, 8)
         }
         .background(.ultraThinMaterial)
         .photosPicker(
-            isPresented: $store.isMediaPickerPresented.sending(\.setMediaPickerPresented),
+            isPresented: $store.mediaUpload.isMediaPickerPresented.sending(\.mediaUpload.setMediaPickerPresented),
             selection: $selectedPhotosItems,
-            maxSelectionCount: store.remainingMediaCount,
+            maxSelectionCount: store.mediaUpload.remainingMediaCount,
             matching: .any(of: [.images, .videos])
         )
         .onChange(of: selectedPhotosItems) { _, newItems in
@@ -334,7 +401,7 @@ private extension ChatRoomView {
     var selectedMediaPreview: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                ForEach(store.selectedMediaItems) { item in
+                ForEach(store.mediaUpload.selectedMediaItems) { item in
                     ZStack(alignment: .topTrailing) {
                         if item.type == .image, let uiImage = UIImage(data: item.data) {
                             Image(uiImage: uiImage)
@@ -366,7 +433,7 @@ private extension ChatRoomView {
                         }
 
                         Button {
-                            store.send(.removeSelectedMedia(item.id))
+                            store.send(.mediaUpload(.removeSelectedMedia(item.id)))
                         } label: {
                             Image(systemName: "xmark.circle.fill")
                                 .font(.system(size: 18))
@@ -403,9 +470,9 @@ private extension ChatRoomView {
                 if let movie = try? await item.loadTransferable(type: VideoTransferable.self) {
                     let data = movie.data
 
-                    if data.count > store.maxFileSizeBytes {
+                    if data.count > store.mediaUpload.maxFileSizeBytes {
                         await MainActor.run {
-                            store.send(.fileSizeExceeded(item.itemIdentifier ?? "동영상"))
+                            store.send(.mediaUpload(.fileSizeExceeded(item.itemIdentifier ?? "동영상")))
                         }
                         continue
                     }
@@ -427,9 +494,9 @@ private extension ChatRoomView {
                 }
             } else {
                 if let data = try? await item.loadTransferable(type: Data.self) {
-                    if data.count > store.maxFileSizeBytes {
+                    if data.count > store.mediaUpload.maxFileSizeBytes {
                         await MainActor.run {
-                            store.send(.fileSizeExceeded(item.itemIdentifier ?? "이미지"))
+                            store.send(.mediaUpload(.fileSizeExceeded(item.itemIdentifier ?? "이미지")))
                         }
                         continue
                     }
@@ -449,8 +516,8 @@ private extension ChatRoomView {
 
         await MainActor.run {
             if !selectedItems.isEmpty {
-                store.send(.mediaSelected(selectedItems))
-                store.send(.sendMediaButtonTapped)
+                store.send(.mediaUpload(.mediaSelected(selectedItems)))
+                store.send(.mediaUpload(.sendMediaButtonTapped))
             }
             selectedPhotosItems = []
         }
