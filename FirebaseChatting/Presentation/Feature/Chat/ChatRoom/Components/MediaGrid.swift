@@ -80,7 +80,7 @@ struct GridLayout: Equatable {
         case 2:
             return GridLayout(rows: [2])
         case 3:
-            return GridLayout(rows: [1, 1, 1])
+            return GridLayout(rows: [3])
         case 4:
             return GridLayout(rows: [2, 2])
         case 5:
@@ -94,7 +94,7 @@ struct GridLayout: Equatable {
         case 9:
             return GridLayout(rows: [3, 3, 3])
         case 10:
-            return GridLayout(rows: [3, 3, 3, 1])
+            return GridLayout(rows: [3, 3, 4])
         default:
             return GridLayout(rows: [1])
         }
@@ -106,6 +106,33 @@ struct GridLayout: Equatable {
 #Preview("1 Image") {
     MediaGrid(
         mediaUrls: ["https://picsum.photos/200"],
+        maxWidth: 220
+    ) { index in
+        print("Tapped image at index: \(index)")
+    }
+    .padding()
+}
+
+#Preview("2 Image") {
+    MediaGrid(
+        mediaUrls: [
+            "https://picsum.photos/200",
+            "https://picsum.photos/201"
+        ],
+        maxWidth: 220
+    ) { index in
+        print("Tapped image at index: \(index)")
+    }
+    .padding()
+}
+
+#Preview("3 Image") {
+    MediaGrid(
+        mediaUrls: [
+            "https://picsum.photos/200",
+            "https://picsum.photos/201",
+            "https://picsum.photos/202",
+        ],
         maxWidth: 220
     ) { index in
         print("Tapped image at index: \(index)")
@@ -128,6 +155,76 @@ struct GridLayout: Equatable {
     .padding()
 }
 
+#Preview("5 Images") {
+    MediaGrid(
+        mediaUrls: [
+            "https://picsum.photos/200",
+            "https://picsum.photos/201",
+            "https://picsum.photos/202",
+            "https://picsum.photos/203",
+            "https://picsum.photos/204"
+        ],
+        maxWidth: 220
+    ) { index in
+        print("Tapped image at index: \(index)")
+    }
+    .padding()
+}
+
+#Preview("6 Images") {
+    MediaGrid(
+        mediaUrls: [
+            "https://picsum.photos/200",
+            "https://picsum.photos/201",
+            "https://picsum.photos/202",
+            "https://picsum.photos/203",
+            "https://picsum.photos/204",
+            "https://picsum.photos/205"
+        ],
+        maxWidth: 220
+    ) { index in
+        print("Tapped image at index: \(index)")
+    }
+    .padding()
+}
+
+#Preview("7 Images") {
+    MediaGrid(
+        mediaUrls: [
+            "https://picsum.photos/200",
+            "https://picsum.photos/201",
+            "https://picsum.photos/202",
+            "https://picsum.photos/203",
+            "https://picsum.photos/204",
+            "https://picsum.photos/205",
+            "https://picsum.photos/206",
+        ],
+        maxWidth: 220
+    ) { index in
+        print("Tapped image at index: \(index)")
+    }
+    .padding()
+}
+
+#Preview("8 Images") {
+    MediaGrid(
+        mediaUrls: [
+            "https://picsum.photos/200",
+            "https://picsum.photos/201",
+            "https://picsum.photos/202",
+            "https://picsum.photos/203",
+            "https://picsum.photos/204",
+            "https://picsum.photos/205",
+            "https://picsum.photos/206",
+            "https://picsum.photos/207",
+        ],
+        maxWidth: 220
+    ) { index in
+        print("Tapped image at index: \(index)")
+    }
+    .padding()
+}
+
 #Preview("9 Images") {
     MediaGrid(
         mediaUrls: [
@@ -140,6 +237,27 @@ struct GridLayout: Equatable {
             "https://picsum.photos/206",
             "https://picsum.photos/207",
             "https://picsum.photos/208"
+        ],
+        maxWidth: 220
+    ) { index in
+        print("Tapped image at index: \(index)")
+    }
+    .padding()
+}
+
+#Preview("10 Images") {
+    MediaGrid(
+        mediaUrls: [
+            "https://picsum.photos/200",
+            "https://picsum.photos/201",
+            "https://picsum.photos/202",
+            "https://picsum.photos/203",
+            "https://picsum.photos/204",
+            "https://picsum.photos/205",
+            "https://picsum.photos/206",
+            "https://picsum.photos/207",
+            "https://picsum.photos/208",
+            "https://picsum.photos/209"
         ],
         maxWidth: 220
     ) { index in

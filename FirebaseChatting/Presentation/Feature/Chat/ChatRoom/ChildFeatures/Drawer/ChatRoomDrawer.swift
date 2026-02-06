@@ -16,11 +16,11 @@ struct ChatRoomDrawer: View {
         GeometryReader { geometry in
             ZStack(alignment: .trailing) {
                 // 반투명 배경 (탭하면 닫힘)
-                if store.isDrawerOpen {
+                if store.drawer.isOpen {
                     Color.black.opacity(0.4)
                         .ignoresSafeArea()
                         .onTapGesture {
-                            store.send(.setDrawerOpen(false))
+                            store.send(.drawer(.setOpen(false)))
                         }
                 }
 
@@ -62,7 +62,7 @@ struct ChatRoomDrawer: View {
 
                         // 친구 초대 버튼
                         Button {
-                            store.send(.inviteFromDrawerTapped)
+                            store.send(.drawer(.inviteButtonTapped))
                         } label: {
                             HStack {
                                 Image(systemName: "person.badge.plus")
@@ -84,12 +84,12 @@ struct ChatRoomDrawer: View {
                             topTrailingRadius: 0
                         )
                     )
-                    .offset(x: store.isDrawerOpen ? 0 : geometry.size.width * widthRatio)
+                    .offset(x: store.drawer.isOpen ? 0 : geometry.size.width * widthRatio)
                 }
                 .ignoresSafeArea(edges: .bottom)
             }
         }
-        .animation(.easeInOut(duration: 0.3), value: store.isDrawerOpen)
+        .animation(.easeInOut(duration: 0.3), value: store.drawer.isOpen)
     }
 }
 

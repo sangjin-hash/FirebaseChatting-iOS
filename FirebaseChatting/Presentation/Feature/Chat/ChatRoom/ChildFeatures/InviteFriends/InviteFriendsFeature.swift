@@ -2,7 +2,7 @@
 //  InviteFriendsFeature.swift
 //  FirebaseChatting
 //
-//  Created by Claude Code
+//  Created by Sangjin Lee
 //
 
 import Foundation
