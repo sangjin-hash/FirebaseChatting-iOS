@@ -13,7 +13,7 @@ import ComposableArchitecture
 @MainActor
 struct ChatRoomMediaTests {
 
-    // MARK: - Media Picker Tests
+    // MARK: - Media Picker Tests (MediaUploadFeature)
 
     @Test
     func test_mediaButtonTapped_presentsMediaPicker() async {
@@ -26,8 +26,8 @@ struct ChatRoomMediaTests {
             ChatRoomFeature()
         }
 
-        await store.send(.mediaButtonTapped) {
-            $0.isMediaPickerPresented = true
+        await store.send(.mediaUpload(.mediaButtonTapped)) {
+            $0.mediaUpload.isMediaPickerPresented = true
         }
     }
 
@@ -37,18 +37,18 @@ struct ChatRoomMediaTests {
             chatRoomId: "chatroom-1",
             currentUserId: "current-user-123"
         )
-        state.isMediaPickerPresented = true
+        state.mediaUpload.isMediaPickerPresented = true
 
         let store = TestStore(initialState: state) {
             ChatRoomFeature()
         }
 
-        await store.send(.setMediaPickerPresented(false)) {
-            $0.isMediaPickerPresented = false
+        await store.send(.mediaUpload(.setMediaPickerPresented(false))) {
+            $0.mediaUpload.isMediaPickerPresented = false
         }
     }
 
-    // MARK: - Media Selection Tests
+    // MARK: - Media Selection Tests (MediaUploadFeature)
 
     @Test
     func test_mediaSelected_addsToSelectedItems() async {
@@ -63,9 +63,9 @@ struct ChatRoomMediaTests {
 
         let mediaItems = [TestData.imageMediaItem1, TestData.imageMediaItem2]
 
-        await store.send(.mediaSelected(mediaItems)) {
-            $0.selectedMediaItems.append(TestData.imageMediaItem1)
-            $0.selectedMediaItems.append(TestData.imageMediaItem2)
+        await store.send(.mediaUpload(.mediaSelected(mediaItems))) {
+            $0.mediaUpload.selectedMediaItems.append(TestData.imageMediaItem1)
+            $0.mediaUpload.selectedMediaItems.append(TestData.imageMediaItem2)
         }
     }
 
@@ -75,15 +75,15 @@ struct ChatRoomMediaTests {
             chatRoomId: "chatroom-1",
             currentUserId: "current-user-123"
         )
-        state.selectedMediaItems.append(TestData.imageMediaItem1)
-        state.selectedMediaItems.append(TestData.imageMediaItem2)
+        state.mediaUpload.selectedMediaItems.append(TestData.imageMediaItem1)
+        state.mediaUpload.selectedMediaItems.append(TestData.imageMediaItem2)
 
         let store = TestStore(initialState: state) {
             ChatRoomFeature()
         }
 
-        await store.send(.removeSelectedMedia("media-1")) {
-            $0.selectedMediaItems.remove(id: "media-1")
+        await store.send(.mediaUpload(.removeSelectedMedia("media-1"))) {
+            $0.mediaUpload.selectedMediaItems.remove(id: "media-1")
         }
     }
 
@@ -93,15 +93,15 @@ struct ChatRoomMediaTests {
             chatRoomId: "chatroom-1",
             currentUserId: "current-user-123"
         )
-        state.selectedMediaItems.append(TestData.imageMediaItem1)
-        state.selectedMediaItems.append(TestData.imageMediaItem2)
+        state.mediaUpload.selectedMediaItems.append(TestData.imageMediaItem1)
+        state.mediaUpload.selectedMediaItems.append(TestData.imageMediaItem2)
 
         let store = TestStore(initialState: state) {
             ChatRoomFeature()
         }
 
-        await store.send(.clearSelectedMedia) {
-            $0.selectedMediaItems.removeAll()
+        await store.send(.mediaUpload(.clearSelectedMedia)) {
+            $0.mediaUpload.selectedMediaItems.removeAll()
         }
     }
 
@@ -116,8 +116,8 @@ struct ChatRoomMediaTests {
             ChatRoomFeature()
         }
 
-        await store.send(.fileSizeExceeded("large_video.mp4")) {
-            $0.fileSizeExceededFileName = "large_video.mp4"
+        await store.send(.mediaUpload(.fileSizeExceeded("large_video.mp4"))) {
+            $0.mediaUpload.fileSizeExceededFileName = "large_video.mp4"
         }
     }
 
@@ -134,7 +134,7 @@ struct ChatRoomMediaTests {
             ChatRoomFeature()
         }
 
-        await store.send(.sendMediaButtonTapped)
+        await store.send(.mediaUpload(.sendMediaButtonTapped))
     }
 
     @Test
@@ -143,7 +143,7 @@ struct ChatRoomMediaTests {
             chatRoomId: "chatroom-1",
             currentUserId: "current-user-123"
         )
-        state.uploadingItems = [
+        state.mediaUpload.uploadingItems = [
             UploadingMediaItem(
                 id: "media-1",
                 type: .image,
@@ -160,7 +160,7 @@ struct ChatRoomMediaTests {
         }
 
         await store.send(.uploadProgress(itemId: "media-1", progress: 0.5)) {
-            $0.uploadingItems[id: "media-1"]?.progress = 0.5
+            $0.mediaUpload.uploadingItems[id: "media-1"]?.progress = 0.5
         }
     }
 
@@ -170,7 +170,7 @@ struct ChatRoomMediaTests {
             chatRoomId: "chatroom-1",
             currentUserId: "current-user-123"
         )
-        state.uploadingItems = [
+        state.mediaUpload.uploadingItems = [
             UploadingMediaItem(
                 id: "media-1",
                 type: .image,
@@ -187,8 +187,8 @@ struct ChatRoomMediaTests {
         }
 
         await store.send(.uploadCompleted(itemId: "media-1", downloadURL: "https://example.com/image1.jpg")) {
-            $0.uploadingItems[id: "media-1"]?.isCompleted = true
-            $0.uploadingItems[id: "media-1"]?.downloadURL = "https://example.com/image1.jpg"
+            $0.mediaUpload.uploadingItems[id: "media-1"]?.isCompleted = true
+            $0.mediaUpload.uploadingItems[id: "media-1"]?.downloadURL = "https://example.com/image1.jpg"
         }
     }
 
@@ -198,8 +198,8 @@ struct ChatRoomMediaTests {
             chatRoomId: "chatroom-1",
             currentUserId: "current-user-123"
         )
-        state.isUploading = true
-        state.uploadingItems = [
+        state.mediaUpload.isUploading = true
+        state.mediaUpload.uploadingItems = [
             UploadingMediaItem(
                 id: "media-1",
                 type: .image,
@@ -216,8 +216,8 @@ struct ChatRoomMediaTests {
         }
 
         await store.send(.uploadFailed(itemId: "media-1", TestError.networkError)) {
-            $0.uploadingItems[id: "media-1"]?.error = TestError.networkError.localizedDescription
-            $0.isUploading = false
+            $0.mediaUpload.uploadingItems[id: "media-1"]?.error = TestError.networkError.localizedDescription
+            $0.mediaUpload.isUploading = false
             $0.error = "업로드 실패: \(TestError.networkError.localizedDescription)"
         }
     }
@@ -231,8 +231,8 @@ struct ChatRoomMediaTests {
             currentUserId: "current-user-123"
         )
         state.messages = [TestData.message1]  // 기존 채팅방 시뮬레이션
-        state.isUploading = true
-        state.uploadingItems = [
+        state.mediaUpload.isUploading = true
+        state.mediaUpload.uploadingItems = [
             UploadingMediaItem(
                 id: "media-1",
                 type: .image,
@@ -274,7 +274,7 @@ struct ChatRoomMediaTests {
         }
 
         await store.send(.allUploadsCompleted) {
-            $0.uploadingItems.removeAll()
+            $0.mediaUpload.uploadingItems.removeAll()
         }
 
         // 이미지 1개 메시지 (2장) + 동영상 1개 메시지로 분리
@@ -287,7 +287,7 @@ struct ChatRoomMediaTests {
         // exhaustivity off로 UUID 변경 무시
         store.exhaustivity = .off
         await store.receive(.mediaMessageSent(.success(()))) {
-            $0.isUploading = false
+            $0.mediaUpload.isUploading = false
         }
     }
 
@@ -298,8 +298,8 @@ struct ChatRoomMediaTests {
             currentUserId: "current-user-123"
         )
         state.messages = [TestData.message1]  // 기존 채팅방 시뮬레이션
-        state.isUploading = true
-        state.uploadingItems = [
+        state.mediaUpload.isUploading = true
+        state.mediaUpload.uploadingItems = [
             UploadingMediaItem(
                 id: "media-1",
                 type: .image,
@@ -341,7 +341,7 @@ struct ChatRoomMediaTests {
         }
 
         await store.send(.allUploadsCompleted) {
-            $0.uploadingItems.removeAll()
+            $0.mediaUpload.uploadingItems.removeAll()
         }
 
         // 이미지 1개 메시지 + 동영상 2개 메시지 = 총 3개 메시지 payload
@@ -355,7 +355,7 @@ struct ChatRoomMediaTests {
         // exhaustivity off로 UUID 변경 무시
         store.exhaustivity = .off
         await store.receive(.mediaMessageSent(.success(()))) {
-            $0.isUploading = false
+            $0.mediaUpload.isUploading = false
         }
     }
 
@@ -368,7 +368,7 @@ struct ChatRoomMediaTests {
             currentUserId: "current-user-123"
         )
         state.messages = [TestData.message1]
-        state.isUploading = true
+        state.mediaUpload.isUploading = true
 
         var sentMediaTypes: [MessageType] = []
         var sentMediaUrls: [[String]] = []
@@ -392,7 +392,7 @@ struct ChatRoomMediaTests {
         // exhaustivity off로 UUID 변경 무시
         store.exhaustivity = .off
         await store.receive(.mediaMessageSent(.success(()))) {
-            $0.isUploading = false
+            $0.mediaUpload.isUploading = false
         }
 
         #expect(sentMediaTypes.count == 2)
@@ -409,7 +409,7 @@ struct ChatRoomMediaTests {
             currentUserId: "current-user-123"
         )
         state.messages = [TestData.message1]
-        state.isUploading = true
+        state.mediaUpload.isUploading = true
 
         let store = TestStore(initialState: state) {
             ChatRoomFeature()
@@ -426,12 +426,12 @@ struct ChatRoomMediaTests {
         await store.send(.sendMediaMessages(payloads))
 
         await store.receive(.mediaMessageSent(.failure(TestError.networkError))) {
-            $0.isUploading = false
+            $0.mediaUpload.isUploading = false
             $0.error = TestError.networkError.localizedDescription
         }
     }
 
-    // MARK: - Image Viewer Tests
+    // MARK: - Image Viewer Tests (MediaViewerFeature)
 
     @Test
     func test_imageTapped_presentsFullScreenViewer() async {
@@ -446,8 +446,8 @@ struct ChatRoomMediaTests {
 
         let imageURLs = ["https://example.com/image1.jpg", "https://example.com/image2.jpg"]
 
-        await store.send(.imageTapped(imageURLs: imageURLs, index: 1)) {
-            $0.fullScreenImageViewerState = FullScreenImageViewerState(
+        await store.send(.mediaViewer(.imageTapped(imageURLs: imageURLs, index: 1))) {
+            $0.mediaViewer.fullScreenImageViewerState = FullScreenImageViewerState(
                 imageURLs: imageURLs,
                 currentIndex: 1
             )
@@ -460,7 +460,7 @@ struct ChatRoomMediaTests {
             chatRoomId: "chatroom-1",
             currentUserId: "current-user-123"
         )
-        state.fullScreenImageViewerState = FullScreenImageViewerState(
+        state.mediaViewer.fullScreenImageViewerState = FullScreenImageViewerState(
             imageURLs: ["https://example.com/image1.jpg"],
             currentIndex: 0
         )
@@ -469,8 +469,8 @@ struct ChatRoomMediaTests {
             ChatRoomFeature()
         }
 
-        await store.send(.dismissImageViewer) {
-            $0.fullScreenImageViewerState = nil
+        await store.send(.mediaViewer(.dismissImageViewer)) {
+            $0.mediaViewer.fullScreenImageViewerState = nil
         }
     }
 
@@ -480,7 +480,7 @@ struct ChatRoomMediaTests {
             chatRoomId: "chatroom-1",
             currentUserId: "current-user-123"
         )
-        state.fullScreenImageViewerState = FullScreenImageViewerState(
+        state.mediaViewer.fullScreenImageViewerState = FullScreenImageViewerState(
             imageURLs: ["https://example.com/image1.jpg", "https://example.com/image2.jpg"],
             currentIndex: 0
         )
@@ -489,12 +489,12 @@ struct ChatRoomMediaTests {
             ChatRoomFeature()
         }
 
-        await store.send(.imageViewerIndexChanged(1)) {
-            $0.fullScreenImageViewerState?.currentIndex = 1
+        await store.send(.mediaViewer(.imageViewerIndexChanged(1))) {
+            $0.mediaViewer.fullScreenImageViewerState?.currentIndex = 1
         }
     }
 
-    // MARK: - Video Player Tests
+    // MARK: - Video Player Tests (MediaViewerFeature)
 
     @Test
     func test_videoTapped_presentsVideoPlayer() async {
@@ -509,8 +509,8 @@ struct ChatRoomMediaTests {
 
         let videoURL = URL(string: "https://example.com/video1.mp4")!
 
-        await store.send(.videoTapped(videoURL)) {
-            $0.videoPlayerURL = videoURL
+        await store.send(.mediaViewer(.videoTapped(videoURL))) {
+            $0.mediaViewer.videoPlayerURL = videoURL
         }
     }
 
@@ -520,14 +520,14 @@ struct ChatRoomMediaTests {
             chatRoomId: "chatroom-1",
             currentUserId: "current-user-123"
         )
-        state.videoPlayerURL = URL(string: "https://example.com/video1.mp4")
+        state.mediaViewer.videoPlayerURL = URL(string: "https://example.com/video1.mp4")
 
         let store = TestStore(initialState: state) {
             ChatRoomFeature()
         }
 
-        await store.send(.dismissVideoPlayer) {
-            $0.videoPlayerURL = nil
+        await store.send(.mediaViewer(.dismissVideoPlayer)) {
+            $0.mediaViewer.videoPlayerURL = nil
         }
     }
 
@@ -539,9 +539,9 @@ struct ChatRoomMediaTests {
             chatRoomId: "chatroom-1",
             currentUserId: "current-user-123"
         )
-        state.selectedMediaItems.append(TestData.imageMediaItem1)
+        state.mediaUpload.selectedMediaItems.append(TestData.imageMediaItem1)
 
-        #expect(state.hasSelectedMedia == true)
+        #expect(state.mediaUpload.hasSelectedMedia == true)
     }
 
     @Test
@@ -551,7 +551,7 @@ struct ChatRoomMediaTests {
             currentUserId: "current-user-123"
         )
 
-        #expect(state.hasSelectedMedia == false)
+        #expect(state.mediaUpload.hasSelectedMedia == false)
     }
 
     @Test
@@ -560,11 +560,11 @@ struct ChatRoomMediaTests {
             chatRoomId: "chatroom-1",
             currentUserId: "current-user-123"
         )
-        state.selectedMediaItems.append(TestData.imageMediaItem1)
-        state.selectedMediaItems.append(TestData.imageMediaItem2)
+        state.mediaUpload.selectedMediaItems.append(TestData.imageMediaItem1)
+        state.mediaUpload.selectedMediaItems.append(TestData.imageMediaItem2)
 
-        // 최대 10개 중 2개 선택 → 8개 남음
-        #expect(state.remainingMediaCount == 8)
+        // 최대 10개 중 2개 선택 -> 8개 남음
+        #expect(state.mediaUpload.remainingMediaCount == 8)
     }
 
     @Test
@@ -584,7 +584,7 @@ struct ChatRoomMediaTests {
             chatRoomId: "chatroom-1",
             currentUserId: "current-user-123"
         )
-        state.selectedMediaItems.append(TestData.imageMediaItem1)
+        state.mediaUpload.selectedMediaItems.append(TestData.imageMediaItem1)
 
         #expect(state.canSendAny == true)
     }
