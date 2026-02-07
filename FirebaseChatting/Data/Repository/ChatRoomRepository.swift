@@ -19,12 +19,21 @@ nonisolated struct ChatRoomRepository: Sendable {
     /// 채팅방 재입장 (나갔다가 다시 들어오는 경우)
     var rejoinChatRoom: @Sendable (_ chatRoomId: String, _ userId: String) async throws -> Void
 
-    // MARK: - Message Methods
+    // MARK: - Cache Methods
 
-    /// 메시지 실시간 스트림 (최신 메시지 limit개)
-    var observeMessages: @Sendable (_ chatRoomId: String, _ limit: Int) -> AsyncStream<[Message]> = { _, _ in
+    /// 캐시된 메시지 로드 (채팅방 진입 시 즉시 렌더링용)
+    var loadCachedMessages: @Sendable (_ chatRoomId: String, _ limit: Int) async throws -> [Message]
+    /// 메시지 실시간 관찰 + 자동 캐싱 + index 갱신
+    var observeMessages: @Sendable (_ chatRoomId: String) -> AsyncStream<[Message]> = { _ in
         AsyncStream { $0.finish() }
     }
+    /// 위로 스크롤 페이지네이션 (로컬 우선 → 서버 fallback → 캐싱)
+    var fetchOlderMessages: @Sendable (_ chatRoomId: String, _ beforeCreatedAt: Date, _ limit: Int) async throws -> [Message]
+    /// 순방향 페이지네이션 (서버 → 캐싱 + index 갱신)
+    var fetchNewerMessages: @Sendable (_ chatRoomId: String, _ afterCreatedAt: Date, _ limit: Int) async throws -> [Message]
+
+    // MARK: - Message Send Methods
+
     /// 메시지 전송 (기존 채팅방)
     var sendMessage: @Sendable (_ chatRoomId: String, _ senderId: String, _ content: String) async throws -> Void
     /// 채팅방 생성 + 첫 메시지 전송 (트랜잭션)
@@ -34,8 +43,6 @@ nonisolated struct ChatRoomRepository: Sendable {
         _ senderId: String,
         _ content: String
     ) async throws -> Void
-    /// 이전 메시지 로드 (페이지네이션)
-    var fetchMessages: @Sendable (_ chatRoomId: String, _ beforeCreatedAt: Date?, _ limit: Int) async throws -> [Message]
 
     // MARK: - Group Chat Methods
 
@@ -91,50 +98,100 @@ nonisolated struct ChatRoomRepository: Sendable {
 
 extension ChatRoomRepository: DependencyKey {
     nonisolated static let liveValue: ChatRoomRepository = {
-        @Dependency(\.chatRoomRemoteDataSource) var dataSource
+        @Dependency(\.chatRoomRemoteDataSource) var remoteDataSource
+        @Dependency(\.chatLocalDataSource) var localDataSource
 
         return ChatRoomRepository(
             getGroupChatRoom: { chatRoomId in
-                try await dataSource.getGroupChatRoom(chatRoomId)
+                try await remoteDataSource.getGroupChatRoom(chatRoomId)
             },
             getDirectChatRoom: { myUserId, otherUserId in
-                try await dataSource.getDirectChatRoom(myUserId, otherUserId)
+                try await remoteDataSource.getDirectChatRoom(myUserId, otherUserId)
             },
             rejoinChatRoom: { chatRoomId, userId in
-                try await dataSource.rejoinChatRoom(chatRoomId, userId)
+                try await remoteDataSource.rejoinChatRoom(chatRoomId, userId)
             },
-            observeMessages: { chatRoomId, limit in
-                dataSource.observeMessages(chatRoomId, limit)
+            loadCachedMessages: { chatRoomId, limit in
+                try await localDataSource.fetchRecentMessages(chatRoomId, limit)
+            },
+            observeMessages: { chatRoomId in
+                AsyncStream { continuation in
+                    let task = Task {
+                        let afterCreatedAt = try? await localDataSource.getLastCachedCreatedAt(chatRoomId)
+
+                        for await messages in remoteDataSource.observeMessages(chatRoomId, afterCreatedAt, 30) {
+                            if !messages.isEmpty {
+                                try? await localDataSource.saveMessages(messages, chatRoomId)
+
+                                if let maxIndex = messages.compactMap(\.index).max(),
+                                   let lastCreatedAt = messages.map(\.createdAt).max() {
+                                    try? await localDataSource.updateIndex(chatRoomId, maxIndex, lastCreatedAt)
+                                }
+                            }
+                            continuation.yield(messages)
+                        }
+                        continuation.finish()
+                    }
+                    continuation.onTermination = { _ in
+                        task.cancel()
+                    }
+                }
+            },
+            fetchOlderMessages: { chatRoomId, beforeCreatedAt, limit in
+                let localMessages = try await localDataSource.fetchOlderMessages(chatRoomId, beforeCreatedAt, limit)
+
+                if localMessages.count >= limit {
+                    return localMessages
+                }
+
+                let remoteMessages = try await remoteDataSource.fetchMessages(chatRoomId, beforeCreatedAt, false, limit)
+
+                if !remoteMessages.isEmpty {
+                    try? await localDataSource.saveMessages(remoteMessages, chatRoomId)
+                }
+
+                return remoteMessages
+            },
+            fetchNewerMessages: { chatRoomId, afterCreatedAt, limit in
+                let remoteMessages = try await remoteDataSource.fetchMessages(chatRoomId, afterCreatedAt, true, limit)
+
+                if !remoteMessages.isEmpty {
+                    try? await localDataSource.saveMessages(remoteMessages, chatRoomId)
+
+                    if let maxIndex = remoteMessages.compactMap(\.index).max(),
+                       let lastCreatedAt = remoteMessages.map(\.createdAt).max() {
+                        try? await localDataSource.updateIndex(chatRoomId, maxIndex, lastCreatedAt)
+                    }
+                }
+
+                return remoteMessages
             },
             sendMessage: { chatRoomId, senderId, content in
-                try await dataSource.sendMessage(chatRoomId, senderId, content)
+                try await remoteDataSource.sendMessage(chatRoomId, senderId, content)
             },
             createChatRoomAndSendMessage: { chatRoomId, userIds, senderId, content in
-                try await dataSource.createChatRoomAndSendMessage(chatRoomId, userIds, senderId, content)
-            },
-            fetchMessages: { chatRoomId, beforeCreatedAt, limit in
-                try await dataSource.fetchMessages(chatRoomId, beforeCreatedAt, limit)
+                try await remoteDataSource.createChatRoomAndSendMessage(chatRoomId, userIds, senderId, content)
             },
             createGroupChatRoomAndSendMessage: { chatRoomId, userIds, senderId, content in
-                try await dataSource.createGroupChatRoomAndSendMessage(chatRoomId, userIds, senderId, content)
+                try await remoteDataSource.createGroupChatRoomAndSendMessage(chatRoomId, userIds, senderId, content)
             },
             inviteToGroupChat: { chatRoomId, invitedUserIds in
-                try await dataSource.inviteToGroupChat(chatRoomId, invitedUserIds)
+                try await remoteDataSource.inviteToGroupChat(chatRoomId, invitedUserIds)
             },
             sendSystemMessage: { chatRoomId, content in
-                try await dataSource.sendSystemMessage(chatRoomId, content)
+                try await remoteDataSource.sendSystemMessage(chatRoomId, content)
             },
             sendSystemMessageWithLeftUser: { chatRoomId, content, leftUserId, leftUserNickname in
-                try await dataSource.sendSystemMessageWithLeftUser(chatRoomId, content, leftUserId, leftUserNickname)
+                try await remoteDataSource.sendSystemMessageWithLeftUser(chatRoomId, content, leftUserId, leftUserNickname)
             },
             sendMediaMessage: { chatRoomId, senderId, type, mediaUrls in
-                try await dataSource.sendMediaMessage(chatRoomId, senderId, type, mediaUrls)
+                try await remoteDataSource.sendMediaMessage(chatRoomId, senderId, type, mediaUrls)
             },
             createChatRoomAndSendMediaMessage: { chatRoomId, userIds, senderId, type, mediaUrls in
-                try await dataSource.createChatRoomAndSendMediaMessage(chatRoomId, userIds, senderId, type, mediaUrls)
+                try await remoteDataSource.createChatRoomAndSendMediaMessage(chatRoomId, userIds, senderId, type, mediaUrls)
             },
             createGroupChatRoomAndSendMediaMessage: { chatRoomId, userIds, senderId, type, mediaUrls in
-                try await dataSource.createGroupChatRoomAndSendMediaMessage(chatRoomId, userIds, senderId, type, mediaUrls)
+                try await remoteDataSource.createGroupChatRoomAndSendMediaMessage(chatRoomId, userIds, senderId, type, mediaUrls)
             }
         )
     }()
