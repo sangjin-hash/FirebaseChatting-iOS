@@ -22,8 +22,8 @@ nonisolated struct ChatRoomRemoteDataSource: Sendable {
 
     // MARK: - Message Methods
 
-    /// 메시지 실시간 스트림 (최신 메시지 limit개)
-    var observeMessages: @Sendable (_ chatRoomId: String, _ limit: Int) -> AsyncStream<[Message]> = { _, _ in
+    /// 메시지 실시간 스트림 (afterCreatedAt 이후 메시지, nil이면 최신 limit개)
+    var observeMessages: @Sendable (_ chatRoomId: String, _ afterCreatedAt: Date?, _ limit: Int) -> AsyncStream<[Message]> = { _, _, _ in
         AsyncStream { $0.finish() }
     }
     /// 메시지 전송 (기존 채팅방)
@@ -35,8 +35,8 @@ nonisolated struct ChatRoomRemoteDataSource: Sendable {
         _ senderId: String,
         _ content: String
     ) async throws -> Void
-    /// 이전 메시지 로드 (페이지네이션)
-    var fetchMessages: @Sendable (_ chatRoomId: String, _ beforeCreatedAt: Date?, _ limit: Int) async throws -> [Message]
+    /// 메시지 페이지네이션 (isNewer: true → baseCreatedAt 이후, false → 이전)
+    var fetchMessages: @Sendable (_ chatRoomId: String, _ baseCreatedAt: Date, _ isNewer: Bool, _ limit: Int) async throws -> [Message]
 
     // MARK: - Group Chat Methods
 
@@ -156,25 +156,34 @@ extension ChatRoomRemoteDataSource: DependencyKey {
                     return nil
                 }
             },
-            observeMessages: { chatRoomId, limit in
+            observeMessages: { chatRoomId, afterCreatedAt, limit in
                 AsyncStream { continuation in
-                    let listener = db.collection("chatRooms")
+                    let messagesRef = db.collection("chatRooms")
                         .document(chatRoomId)
                         .collection("messages")
-                        .order(by: "createdAt", descending: true)  // DESC: 최신 메시지부터
-                        .limit(to: limit)
-                        .addSnapshotListener { snapshot, error in
-                            guard let documents = snapshot?.documents else {
-                                return
-                            }
 
-                            let messages = documents.compactMap { doc -> Message? in
-                                try? MessageResponseDTO.from(document: doc).toModel()
-                            }
-                            // createdAt 오름차순 정렬 (UI 표시용: 오래된 메시지가 위)
-                            let sortedMessages = messages.sorted { $0.createdAt < $1.createdAt }
-                            continuation.yield(sortedMessages)
+                    let query: Query
+                    if let afterCreatedAt {
+                        query = messagesRef
+                            .whereField("createdAt", isGreaterThan: Timestamp(date: afterCreatedAt))
+                            .order(by: "createdAt")
+                    } else {
+                        query = messagesRef
+                            .order(by: "createdAt", descending: true)
+                            .limit(to: limit)
+                    }
+
+                    let listener = query.addSnapshotListener { snapshot, error in
+                        guard let documents = snapshot?.documents else {
+                            return
                         }
+
+                        let messages = documents.compactMap { doc -> Message? in
+                            try? MessageResponseDTO.from(document: doc).toModel()
+                        }
+                        let sortedMessages = messages.sorted { $0.createdAt < $1.createdAt }
+                        continuation.yield(sortedMessages)
+                    }
 
                     continuation.onTermination = { _ in
                         listener.remove()
@@ -293,15 +302,22 @@ extension ChatRoomRemoteDataSource: DependencyKey {
 
                 try await batch.commit()
             },
-            fetchMessages: { chatRoomId, beforeCreatedAt, limit in
-                var query = db.collection("chatRooms")
+            fetchMessages: { chatRoomId, baseCreatedAt, isNewer, limit in
+                let messagesRef = db.collection("chatRooms")
                     .document(chatRoomId)
                     .collection("messages")
-                    .order(by: "createdAt", descending: true)  // DESC: 최신 메시지부터
-                    .limit(to: limit)
 
-                if let beforeCreatedAt = beforeCreatedAt {
-                    query = query.whereField("createdAt", isLessThan: Timestamp(date: beforeCreatedAt))  // 더 오래된 메시지
+                let query: Query
+                if isNewer {
+                    query = messagesRef
+                        .whereField("createdAt", isGreaterThan: Timestamp(date: baseCreatedAt))
+                        .order(by: "createdAt")
+                        .limit(to: limit)
+                } else {
+                    query = messagesRef
+                        .whereField("createdAt", isLessThan: Timestamp(date: baseCreatedAt))
+                        .order(by: "createdAt", descending: true)
+                        .limit(to: limit)
                 }
 
                 let snapshot = try await query.getDocuments()
@@ -310,7 +326,6 @@ extension ChatRoomRemoteDataSource: DependencyKey {
                     try? MessageResponseDTO.from(document: doc).toModel()
                 }
 
-                // createdAt 오름차순 정렬 (UI 표시용)
                 return messages.sorted { $0.createdAt < $1.createdAt }
             },
             createGroupChatRoomAndSendMessage: { chatRoomId, userIds, senderId, content in
