@@ -93,6 +93,7 @@ struct ChatListView: View {
                     chatRoom: chatRoom,
                     profile: store.chatRoomProfiles[chatRoom.id],
                     displayName: store.state.displayName(for: chatRoom),
+                    unreadCount: store.unreadCounts[chatRoom.id] ?? 0,
                     onTap: {
                         store.send(.chatRoomTapped(chatRoom))
                     },
@@ -142,6 +143,10 @@ struct ChatListView: View {
             chatRoomProfiles: [
                 "D_user-1_user-2": Profile(id: "user-2", nickname: "홍길동"),
                 "D_user-1_user-3": Profile(id: "user-3", nickname: "김철수")
+            ],
+            unreadCounts: [
+                "D_user-1_user-2": 3,
+                "D_user-1_user-3": 128
             ]
         )) {
             ChatListFeature()

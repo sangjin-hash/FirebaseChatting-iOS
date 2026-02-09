@@ -23,6 +23,7 @@ struct ChatListFeature {
         var friends: [Profile] = []  // 그룹 채팅 생성용
         var isLoading: Bool = false
         var error: String?
+        var unreadCounts: [String: Int] = [:]
         var leaveConfirmTarget: ChatRoom? = nil
         @Presents var chatRoomDestination: ChatRoomFeature.State?
         @Presents var createGroupChatDestination: CreateGroupChatFeature.State?
@@ -59,7 +60,7 @@ struct ChatListFeature {
         case setCurrentUserNickname(String)
         case setChatRoomIds([String])
         case setFriends([Profile])
-        case chatRoomsUpdated([ChatRoom])
+        case chatRoomsUpdated([ChatRoom], [String: Int])
         case chatRoomTapped(ChatRoom)
         case chatRoomDestination(PresentationAction<ChatRoomFeature.Action>)
         case createGroupChatButtonTapped
@@ -87,8 +88,8 @@ struct ChatListFeature {
                 return lhs == rhs
             case let (.setFriends(lhs), .setFriends(rhs)):
                 return lhs == rhs
-            case let (.chatRoomsUpdated(lhs), .chatRoomsUpdated(rhs)):
-                return lhs == rhs
+            case let (.chatRoomsUpdated(lhsRooms, lhsCounts), .chatRoomsUpdated(rhsRooms, rhsCounts)):
+                return lhsRooms == rhsRooms && lhsCounts == rhsCounts
             case let (.chatRoomTapped(lhs), .chatRoomTapped(rhs)):
                 return lhs == rhs
             case let (.chatRoomDestination(lhs), .chatRoomDestination(rhs)):
@@ -153,14 +154,15 @@ struct ChatListFeature {
                 }
                 state.isLoading = true
                 return .run { [chatListRepository] send in
-                    for await chatRooms in chatListRepository.observeChatRooms(chatRoomIds) {
-                        await send(.chatRoomsUpdated(chatRooms))
+                    for await (chatRooms, unreadCounts) in chatListRepository.observeChatRooms(chatRoomIds) {
+                        await send(.chatRoomsUpdated(chatRooms, unreadCounts))
                     }
                 }
                 .cancellable(id: "observeChatRooms", cancelInFlight: true)
 
-            case let .chatRoomsUpdated(chatRooms):
+            case let .chatRoomsUpdated(chatRooms, unreadCounts):
                 state.chatRooms = chatRooms
+                state.unreadCounts = unreadCounts
                 state.isLoading = false
                 state.error = nil
                 return .none
@@ -172,7 +174,8 @@ struct ChatListFeature {
                     otherUser: state.chatRoomProfiles[chatRoom.id],
                     chatRoomType: chatRoom.type,
                     activeUserIds: Array(chatRoom.activeUsers.keys),
-                    allFriends: state.friends
+                    allFriends: state.friends,
+                    initialUnreadCount: state.unreadCounts[chatRoom.id] ?? 0
                 )
                 // 채팅방 진입 시 chatRooms 스트림 해제
                 return .cancel(id: "observeChatRooms")
@@ -182,8 +185,8 @@ struct ChatListFeature {
                 guard !state.chatRoomIds.isEmpty else { return .none }
                 let chatRoomIds = state.chatRoomIds
                 return .run { [chatListRepository] send in
-                    for await chatRooms in chatListRepository.observeChatRooms(chatRoomIds) {
-                        await send(.chatRoomsUpdated(chatRooms))
+                    for await (chatRooms, unreadCounts) in chatListRepository.observeChatRooms(chatRoomIds) {
+                        await send(.chatRoomsUpdated(chatRooms, unreadCounts))
                     }
                 }
                 .cancellable(id: "observeChatRooms")

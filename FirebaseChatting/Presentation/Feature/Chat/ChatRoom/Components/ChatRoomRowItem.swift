@@ -11,6 +11,7 @@ struct ChatRoomRowItem: View {
     let chatRoom: ChatRoom
     let profile: Profile?
     let displayName: String
+    let unreadCount: Int
     let onTap: () -> Void
     let onLeave: () -> Void
 
@@ -47,6 +48,16 @@ struct ChatRoomRowItem: View {
                             .lineLimit(1)
 
                         Spacer()
+
+                        if unreadCount > 0 {
+                            Text(unreadCount > 99 ? "99+" : "\(unreadCount)")
+                                .font(.caption2)
+                                .fontWeight(.bold)
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Color.red, in: Capsule())
+                        }
                     }
                 }
             }
@@ -172,6 +183,7 @@ struct ChatRoomRowItem: View {
             ),
             profile: Profile(id: "user2", nickname: "홍길동"),
             displayName: "홍길동",
+            unreadCount: 3,
             onTap: {},
             onLeave: {}
         )
@@ -186,6 +198,7 @@ struct ChatRoomRowItem: View {
             ),
             profile: nil,
             displayName: "알 수 없음",
+            unreadCount: 0,
             onTap: {},
             onLeave: {}
         )
@@ -201,6 +214,7 @@ struct ChatRoomRowItem: View {
             ),
             profile: Profile(id: "user2", nickname: "김철수"),
             displayName: "김철수 외 1명",
+            unreadCount: 150,
             onTap: {},
             onLeave: {}
         )
