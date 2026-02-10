@@ -36,7 +36,8 @@ nonisolated struct ChatRoomRemoteDataSource: Sendable {
         _ content: String
     ) async throws -> Void
     /// 메시지 페이지네이션 (isNewer: true → baseCreatedAt 이후, false → 이전)
-    var fetchMessages: @Sendable (_ chatRoomId: String, _ baseCreatedAt: Date, _ isNewer: Bool, _ limit: Int) async throws -> [Message]
+    /// lowerBound: isNewer=false 일 때 하한 경계 (joinedAt). 이 시각 이전 메시지는 가져오지 않음
+    var fetchMessages: @Sendable (_ chatRoomId: String, _ baseCreatedAt: Date, _ isNewer: Bool, _ lowerBound: Date?, _ limit: Int) async throws -> [Message]
 
     // MARK: - Group Chat Methods
 
@@ -302,7 +303,7 @@ extension ChatRoomRemoteDataSource: DependencyKey {
 
                 try await batch.commit()
             },
-            fetchMessages: { chatRoomId, baseCreatedAt, isNewer, limit in
+            fetchMessages: { chatRoomId, baseCreatedAt, isNewer, lowerBound, limit in
                 let messagesRef = db.collection("chatRooms")
                     .document(chatRoomId)
                     .collection("messages")
@@ -314,8 +315,15 @@ extension ChatRoomRemoteDataSource: DependencyKey {
                         .order(by: "createdAt")
                         .limit(to: limit)
                 } else {
-                    query = messagesRef
+                    var q = messagesRef
                         .whereField("createdAt", isLessThan: Timestamp(date: baseCreatedAt))
+
+                    // joinedAt 하한 경계: 사용자가 입장한 시각 이전 메시지는 가져오지 않음
+                    if let lowerBound {
+                        q = q.whereField("createdAt", isGreaterThanOrEqualTo: Timestamp(date: lowerBound))
+                    }
+
+                    query = q
                         .order(by: "createdAt", descending: true)
                         .limit(to: limit)
                 }

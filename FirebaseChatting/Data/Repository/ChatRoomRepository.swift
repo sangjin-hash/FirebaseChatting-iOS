@@ -28,7 +28,7 @@ nonisolated struct ChatRoomRepository: Sendable {
         AsyncStream { $0.finish() }
     }
     /// 위로 스크롤 페이지네이션 (로컬 우선 → 서버 fallback → 캐싱)
-    var fetchOlderMessages: @Sendable (_ chatRoomId: String, _ beforeCreatedAt: Date, _ limit: Int) async throws -> [Message]
+    var fetchOlderMessages: @Sendable (_ chatRoomId: String, _ beforeCreatedAt: Date, _ joinedAt: Date?, _ limit: Int) async throws -> [Message]
     /// 순방향 페이지네이션 (서버 → 캐싱 + index 갱신)
     var fetchNewerMessages: @Sendable (_ chatRoomId: String, _ afterCreatedAt: Date, _ limit: Int) async throws -> [Message]
 
@@ -137,14 +137,23 @@ extension ChatRoomRepository: DependencyKey {
                     }
                 }
             },
-            fetchOlderMessages: { chatRoomId, beforeCreatedAt, limit in
+            fetchOlderMessages: { chatRoomId, beforeCreatedAt, joinedAt, limit in
                 let localMessages = try await localDataSource.fetchOlderMessages(chatRoomId, beforeCreatedAt, limit)
 
                 if localMessages.count >= limit {
                     return localMessages
                 }
 
-                let remoteMessages = try await remoteDataSource.fetchMessages(chatRoomId, beforeCreatedAt, false, limit)
+                // 로컬 캐시가 부족 → joinedAt 경계까지 도달했는지 확인
+                if let joinedAt = joinedAt, let oldestLocal = localMessages.first {
+                    // 가장 오래된 로컬 메시지가 joinedAt 이하이면 더 이상 가져올 메시지 없음
+                    if oldestLocal.createdAt <= joinedAt {
+                        return localMessages
+                    }
+                }
+
+                // 서버 fallback (joinedAt ~ beforeCreatedAt 사이 메시지 가져오기)
+                let remoteMessages = try await remoteDataSource.fetchMessages(chatRoomId, beforeCreatedAt, false, joinedAt, limit)
 
                 if !remoteMessages.isEmpty {
                     try? await localDataSource.saveMessages(remoteMessages, chatRoomId)
@@ -153,7 +162,7 @@ extension ChatRoomRepository: DependencyKey {
                 return remoteMessages
             },
             fetchNewerMessages: { chatRoomId, afterCreatedAt, limit in
-                let remoteMessages = try await remoteDataSource.fetchMessages(chatRoomId, afterCreatedAt, true, limit)
+                let remoteMessages = try await remoteDataSource.fetchMessages(chatRoomId, afterCreatedAt, true, nil, limit)
 
                 if !remoteMessages.isEmpty {
                     try? await localDataSource.saveMessages(remoteMessages, chatRoomId)
