@@ -204,7 +204,7 @@ private extension ChatRoomView {
     var messageList: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(spacing: 8) {
+                LazyVStack(spacing: 0) {
                     if store.hasMoreMessages && !store.filteredMessages.isEmpty {
                         loadMoreTrigger
                     }
@@ -212,12 +212,41 @@ private extension ChatRoomView {
                     ForEach(groupedMessages, id: \.date) { group in
                         DateSeparator(formattedDate: formatDate(group.date))
 
-                        ForEach(group.messages) { message in
+                        ForEach(Array(group.messages.enumerated()), id: \.element.id) { index, message in
                             if message.id == store.unreadDividerMessageId {
                                 UnreadDivider()
                             }
-                            messageRow(message: message)
-                                .id(message.id)
+
+                            let prevMessage = index > 0 ? group.messages[index - 1] : nil
+                            let nextMessage = index < group.messages.count - 1 ? group.messages[index + 1] : nil
+
+                            let isFirstInSenderGroup = message.isSystemMessage
+                                || prevMessage == nil
+                                || prevMessage!.senderId != message.senderId
+                                || prevMessage!.isSystemMessage
+                                || !isSameMinute(prevMessage!.createdAt, message.createdAt)
+
+                            let isLastInMinuteGroup = message.isSystemMessage
+                                || nextMessage == nil
+                                || nextMessage!.senderId != message.senderId
+                                || !isSameMinute(message.createdAt, nextMessage!.createdAt)
+                                || nextMessage!.isSystemMessage
+
+                            let senderChanged = message.isSystemMessage
+                                || prevMessage == nil
+                                || prevMessage!.senderId != message.senderId
+                                || prevMessage!.isSystemMessage
+
+                            let needsExtraSpace = senderChanged
+                                || (isFirstInSenderGroup && !message.isMine(myUserId: store.currentUserId))
+
+                            messageRow(
+                                message: message,
+                                showSenderInfo: isFirstInSenderGroup,
+                                showTime: isLastInMinuteGroup
+                            )
+                            .id(message.id)
+                            .padding(.top, index == 0 ? 0 : (needsExtraSpace ? 12 : 2))
                         }
                     }
 
@@ -319,7 +348,7 @@ private extension ChatRoomView {
     }
 
     @ViewBuilder
-    func messageRow(message: Message) -> some View {
+    func messageRow(message: Message, showSenderInfo: Bool, showTime: Bool) -> some View {
         if message.isSystemMessage {
             SystemMessageBubble(message: message) { userId, nickname in
                 store.send(.reinviteUserTapped(userId: userId, nickname: nickname))
@@ -328,6 +357,7 @@ private extension ChatRoomView {
             MyMessageBubble(
                 message: message,
                 formattedTime: formatTime(message.createdAt),
+                showTime: showTime,
                 onImageTapped: { urls, index in
                     store.send(.mediaViewer(.imageTapped(imageURLs: urls, index: index)))
                 },
@@ -336,9 +366,14 @@ private extension ChatRoomView {
                 }
             )
         } else {
+            let senderProfile = senderProfile(for: message.senderId)
             OtherMessageBubble(
                 message: message,
+                senderNickname: senderProfile?.nickname,
+                senderProfileUrl: senderProfile?.profilePhotoUrl,
                 formattedTime: formatTime(message.createdAt),
+                showSenderInfo: showSenderInfo,
+                showTime: showTime,
                 onImageTapped: { urls, index in
                     store.send(.mediaViewer(.imageTapped(imageURLs: urls, index: index)))
                 },
@@ -610,6 +645,21 @@ private extension ChatRoomView {
         formatter.locale = Locale(identifier: "ko_KR")
         formatter.dateFormat = "a h:mm"
         return formatter.string(from: date)
+    }
+
+    func senderProfile(for senderId: String) -> Profile? {
+        if store.isGroupChat {
+            return store.allFriends.first { $0.id == senderId }
+        } else {
+            return store.otherUser
+        }
+    }
+
+    func isSameMinute(_ date1: Date, _ date2: Date) -> Bool {
+        let calendar = Calendar.current
+        let comp1 = calendar.dateComponents([.year, .month, .day, .hour, .minute], from: date1)
+        let comp2 = calendar.dateComponents([.year, .month, .day, .hour, .minute], from: date2)
+        return comp1 == comp2
     }
 }
 
