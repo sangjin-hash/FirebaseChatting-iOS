@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import Kingfisher
 
 // MARK: - SystemMessageBubble
 
@@ -54,6 +55,7 @@ struct SystemMessageBubble: View {
 struct MyMessageBubble: View {
     let message: Message
     let formattedTime: String
+    let showTime: Bool
     let onImageTapped: ([String], Int) -> Void
     let onVideoTapped: (URL) -> Void
 
@@ -61,9 +63,11 @@ struct MyMessageBubble: View {
         HStack(alignment: .bottom, spacing: 4) {
             Spacer(minLength: 60)
 
-            Text(formattedTime)
-                .font(.caption2)
-                .foregroundColor(.secondary)
+            if showTime {
+                Text(formattedTime)
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
 
             if message.isMediaMessage {
                 MyMediaMessageContent(
@@ -116,33 +120,70 @@ struct MyMediaMessageContent: View {
 
 struct OtherMessageBubble: View {
     let message: Message
+    let senderNickname: String?
+    let senderProfileUrl: String?
     let formattedTime: String
+    let showSenderInfo: Bool
+    let showTime: Bool
     let onImageTapped: ([String], Int) -> Void
     let onVideoTapped: (URL) -> Void
 
     var body: some View {
-        HStack(alignment: .bottom, spacing: 4) {
-            if message.isMediaMessage {
-                OtherMediaMessageContent(
-                    message: message,
-                    onImageTapped: onImageTapped,
-                    onVideoTapped: onVideoTapped
-                )
+        HStack(alignment: .top, spacing: 8) {
+            if showSenderInfo {
+                // 프로필 이미지
+                KFImage(URL(string: senderProfileUrl ?? ""))
+                    .placeholder {
+                        Image(systemName: "person.circle.fill")
+                            .resizable()
+                            .foregroundColor(.gray)
+                    }
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: 36, height: 36)
+                    .clipShape(Circle())
             } else {
-                Text(message.content ?? "")
-                    .font(.body)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(Color(.systemGray5))
-                    .foregroundColor(.primary)
-                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                // 프로필 영역 자리 유지 (정렬용)
+                Color.clear
+                    .frame(width: 36, height: 0)
             }
 
-            Text(formattedTime)
-                .font(.caption2)
-                .foregroundColor(.secondary)
+            VStack(alignment: .leading, spacing: 4) {
+                if showSenderInfo {
+                    // 닉네임
+                    Text(senderNickname ?? Strings.Common.noName)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .padding(.bottom, 5)
+                }
 
-            Spacer(minLength: 60)
+                // 메시지 버블 + 시간
+                HStack(alignment: .bottom, spacing: 4) {
+                    if message.isMediaMessage {
+                        OtherMediaMessageContent(
+                            message: message,
+                            onImageTapped: onImageTapped,
+                            onVideoTapped: onVideoTapped
+                        )
+                    } else {
+                        Text(message.content ?? "")
+                            .font(.body)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(Color(.systemGray5))
+                            .foregroundColor(.primary)
+                            .clipShape(RoundedRectangle(cornerRadius: 16))
+                    }
+
+                    if showTime {
+                        Text(formattedTime)
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+
+                    Spacer(minLength: 60)
+                }
+            }
         }
     }
 }
