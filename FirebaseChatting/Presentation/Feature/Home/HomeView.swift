@@ -15,61 +15,10 @@ struct HomeView: View {
         NavigationStack {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
-                    // 내 프로필 섹션
-                    if let user = store.currentUser {
-                        UserRowComponent<EmptyView>(
-                            profile: user.profile,
-                            imageSize: 60,
-                            caption: Strings.Common.me
-                        )
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding()
-                    }
-
+                    myProfileSection
                     Divider()
-
-                    // 친구 타이틀
-                    Text(Strings.Home.friendsTitle)
-                        .font(.subheadline)
-                        .fontWeight(.bold)
-                        .foregroundColor(.primary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal)
-                        .padding(.vertical, 8)
-
-                    // 친구 목록
-                    if !store.hasFriendsLoaded {
-                        // 최초 로드 전: 빈 화면
-                        Color.clear
-                            .frame(height: 100)
-                    } else if store.friends.isEmpty {
-                        VStack(spacing: 12) {
-                            Text(Strings.Home.noFriends)
-                                .foregroundColor(.secondary)
-                            Text(Strings.Home.noFriendsDescription)
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.top, 100)
-                    } else {
-                        ForEach(store.friends, id: \.id) { friend in
-                            UserRowComponent(profile: friend) {
-                                CircleIconButtonComponent(
-                                    systemName: "bubble.right",
-                                    action: {
-                                        store.send(.chatButtonTapped(friend))
-                                    }
-                                )
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal)
-                            .padding(.vertical, 8)
-
-                            Divider()
-                                .padding(.leading, 68)
-                        }
-                    }
+                    friendsHeader
+                    friendsList
                 }
             }
             .toolbar {
@@ -95,15 +44,7 @@ struct HomeView: View {
                     SearchView(store: searchStore)
                 }
             }
-            .alert(Strings.Common.error, isPresented: .constant(store.error != nil)) {
-                Button(Strings.Common.confirm) {
-                    // 에러 상태 초기화는 별도 액션으로 처리 가능
-                }
-            } message: {
-                if let error = store.error {
-                    Text(error)
-                }
-            }
+            .errorAlert(error: store.error)
             .confirmDialog(
                 isPresented: Binding(
                     get: { store.chatConfirmTarget != nil },
@@ -128,6 +69,69 @@ struct HomeView: View {
                 item: $store.scope(state: \.chatRoomDestination, action: \.chatRoomDestination)
             ) { chatRoomStore in
                 ChatRoomView(store: chatRoomStore)
+            }
+        }
+    }
+}
+
+// MARK: - Subviews
+
+private extension HomeView {
+    var myProfileSection: some View {
+        Group {
+            if let user = store.currentUser {
+                UserRowComponent<EmptyView>(
+                    profile: user.profile,
+                    imageSize: 60,
+                    caption: Strings.Common.me
+                )
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding()
+            }
+        }
+    }
+
+    var friendsHeader: some View {
+        Text(Strings.Home.friendsTitle)
+            .font(.subheadline)
+            .fontWeight(.bold)
+            .foregroundColor(.primary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal)
+            .padding(.vertical, 8)
+    }
+
+    @ViewBuilder
+    var friendsList: some View {
+        if !store.hasFriendsLoaded {
+            Color.clear
+                .frame(height: 100)
+        } else if store.friends.isEmpty {
+            VStack(spacing: 12) {
+                Text(Strings.Home.noFriends)
+                    .foregroundColor(.secondary)
+                Text(Strings.Home.noFriendsDescription)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.top, 100)
+        } else {
+            ForEach(store.friends, id: \.id) { friend in
+                UserRowComponent(profile: friend) {
+                    CircleIconButtonComponent(
+                        systemName: "bubble.right",
+                        action: {
+                            store.send(.chatButtonTapped(friend))
+                        }
+                    )
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal)
+                .padding(.vertical, 8)
+
+                Divider()
+                    .padding(.leading, 68)
             }
         }
     }

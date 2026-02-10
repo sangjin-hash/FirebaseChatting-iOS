@@ -35,15 +35,7 @@ struct ChatListView: View {
             .sheet(item: $store.scope(state: \.createGroupChatDestination, action: \.createGroupChatDestination)) { createGroupChatStore in
                 CreateGroupChatView(store: createGroupChatStore)
             }
-            .alert(Strings.Common.error, isPresented: .constant(store.error != nil)) {
-                Button(Strings.Common.confirm) {
-                    // 에러 상태 초기화
-                }
-            } message: {
-                if let error = store.error {
-                    Text(error)
-                }
-            }
+            .errorAlert(error: store.error)
             .confirmDialog(
                 isPresented: Binding(
                     get: { store.leaveConfirmTarget != nil },
@@ -72,18 +64,11 @@ struct ChatListView: View {
     }
 
     private var emptyView: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "bubble.left.and.bubble.right")
-                .font(.system(size: 50))
-                .foregroundColor(.secondary)
-            Text(Strings.Chat.noChatRooms)
-                .foregroundColor(.secondary)
-            Text(Strings.Chat.noChatRoomsDescription)
-                .font(.caption)
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        EmptyStateComponent(
+            systemImageName: "bubble.left.and.bubble.right",
+            title: Strings.Chat.noChatRooms,
+            description: Strings.Chat.noChatRoomsDescription
+        )
     }
 
     private var chatRoomList: some View {
