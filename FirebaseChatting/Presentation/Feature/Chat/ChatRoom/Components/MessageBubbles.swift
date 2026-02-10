@@ -198,3 +198,25 @@ struct DateSeparator: View {
         .padding(.vertical, 8)
     }
 }
+
+// MARK: - UnreadDivider
+
+struct UnreadDivider: View {
+    var body: some View {
+        HStack {
+            Rectangle()
+                .fill(Color.blue.opacity(0.5))
+                .frame(height: 1)
+
+            Text(Strings.Chat.unreadDivider)
+                .font(.caption2)
+                .foregroundColor(.blue)
+                .padding(.horizontal, 8)
+
+            Rectangle()
+                .fill(Color.blue.opacity(0.5))
+                .frame(height: 1)
+        }
+        .padding(.vertical, 8)
+    }
+}

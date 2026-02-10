@@ -112,5 +112,6 @@ enum Strings {
         }
         static let today = "오늘"
         static let yesterday = "어제"
+        static let unreadDivider = "여기까지 읽었습니다"
     }
 }

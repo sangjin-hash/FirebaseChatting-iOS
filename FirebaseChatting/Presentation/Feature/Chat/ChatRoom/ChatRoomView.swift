@@ -213,9 +213,16 @@ private extension ChatRoomView {
                         DateSeparator(formattedDate: formatDate(group.date))
 
                         ForEach(group.messages) { message in
+                            if message.id == store.unreadDividerMessageId {
+                                UnreadDivider()
+                            }
                             messageRow(message: message)
                                 .id(message.id)
                         }
+                    }
+
+                    if store.hasMoreNewerMessages {
+                        loadNewerTrigger
                     }
 
                     if !store.mediaUpload.uploadingItems.isEmpty {
@@ -245,7 +252,8 @@ private extension ChatRoomView {
                 }
             }
             .onChange(of: store.filteredMessages.last?.id) { oldValue, newValue in
-                if let id = newValue, oldValue != nil {
+                // 순방향 페이지네이션 중에는 자동 스크롤 비활성화 (온디맨드 로딩)
+                if let id = newValue, oldValue != nil, !store.hasMoreNewerMessages {
                     Task {
                         proxy.scrollTo(id, anchor: .bottom)
                     }
@@ -289,6 +297,22 @@ private extension ChatRoomView {
                     .frame(height: 1)
                     .onAppear {
                         store.send(.loadMoreMessages)
+                    }
+            }
+        }
+    }
+
+    var loadNewerTrigger: some View {
+        Group {
+            if store.isLoadingNewer {
+                ProgressView()
+                    .frame(height: 32)
+                    .frame(maxWidth: .infinity)
+            } else {
+                Color.clear
+                    .frame(height: 1)
+                    .onAppear {
+                        store.send(.loadNewerMessages)
                     }
             }
         }
@@ -608,7 +632,9 @@ struct MessageGroup: Equatable {
             )) {
                 ChatRoomFeature()
             } withDependencies: {
-                $0.chatRoomRepository.observeMessages = { _, _ in
+                $0.chatRoomRepository.loadCachedMessages = { _, _ in [] }
+                $0.chatRoomRepository.getDirectChatRoom = { _, _ in nil }
+                $0.chatRoomRepository.observeMessages = { _ in
                     AsyncStream { continuation in
                         let messages = [
                             Message(id: "1", index: 1, senderId: "user-1", type: .text, content: "안녕하세요!", createdAt: Date().addingTimeInterval(-3600)),

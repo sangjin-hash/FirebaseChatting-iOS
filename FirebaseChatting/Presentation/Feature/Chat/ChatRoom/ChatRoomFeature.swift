@@ -46,6 +46,12 @@ struct ChatRoomFeature {
 
         // Pagination
         var hasMoreMessages: Bool = true
+        var hasMoreNewerMessages: Bool = false
+        var isLoadingNewer: Bool = false
+        var initialUnreadCount: Int = 0
+
+        // Unread divider
+        var unreadDividerMessageId: String? = nil
 
         // Error
         var error: String?
@@ -74,7 +80,8 @@ struct ChatRoomFeature {
             chatRoomType: ChatRoomType = .direct,
             activeUserIds: [String] = [],
             allFriends: [Profile] = [],
-            pendingGroupChatUserIds: [String]? = nil
+            pendingGroupChatUserIds: [String]? = nil,
+            initialUnreadCount: Int = 0
         ) {
             self.chatRoomId = chatRoomId
             self.currentUserId = currentUserId
@@ -84,6 +91,7 @@ struct ChatRoomFeature {
             self.activeUserIds = activeUserIds
             self.allFriends = allFriends
             self.pendingGroupChatUserIds = pendingGroupChatUserIds
+            self.initialUnreadCount = initialUnreadCount
         }
 
         // MARK: - Computed Properties
@@ -145,40 +153,52 @@ struct ChatRoomFeature {
     // MARK: - Action
 
     enum Action: Equatable {
+
+        // MARK: - Lifecycle
+
         case onAppear
         case onDisappear
 
-        // Input
+        // MARK: - Text Message Send
+
         case inputTextChanged(String)
         case sendButtonTapped
-
-        // Messages
-        case messagesUpdated([Message])
-        case messagesLoadFailed(Error)
         case messageSent(Result<Void, Error>)
 
-        // Pagination
+        // MARK: - Message Sync (캐시 로드 + 실시간 관찰 + 순방향 페이지네이션)
+
+        case cachedMessagesLoaded([Message])
+        case startObserving
+        case messagesUpdated([Message])
+        case messagesLoadFailed(Error)
+        case newerMessagesFetched(Result<[Message], Error>)
+
+        // MARK: - Pagination (역방향: 위로 스크롤 / 순방향: 아래로 스크롤)
+
         case loadMoreMessages
         case moreMessagesLoaded(Result<[Message], Error>)
+        case loadNewerMessages
 
-        // Rejoin
+        // MARK: - ChatRoom Load + Rejoin (동기화 전략 결정)
+
         case chatRoomLoaded(ChatRoom?)
         case rejoinCompleted(Result<Void, Error>)
 
-        // Invite Friends (Group Chat)
+        // MARK: - Invite Friends (그룹 채팅 초대)
+
         case inviteFriendsButtonTapped
         case inviteFriendsDestination(PresentationAction<InviteFriendsFeature.Action>)
-        case inviteCompleted(Result<[String], Error>)  // 초대한 친구 ID 반환
+        case inviteCompleted(Result<[String], Error>)
 
-        // Reinvite (from system message link)
+        // MARK: - Reinvite (시스템 메시지 재초대)
+
         case reinviteUserTapped(userId: String, nickname: String)
         case reinviteConfirmDismissed
         case reinviteConfirmed
-        case reinviteCompleted(Result<String, Error>)  // 재초대한 유저 ID 반환
+        case reinviteCompleted(Result<String, Error>)
 
-        // MARK: - Media Actions
+        // MARK: - Media Upload & Send
 
-        // 업로드 & 전송
         case uploadStarted
         case uploadProgress(itemId: String, progress: Double)
         case uploadCompleted(itemId: String, downloadURL: String)
@@ -187,11 +207,12 @@ struct ChatRoomFeature {
         case sendMediaMessages([MediaMessagePayload])
         case mediaMessageSent(Result<Void, Error>)
 
-        // 업로드 실패 시 재업로드
+        // MARK: - Media Retry
+
         case retryUpload(itemId: String)
-        
-        // MARK: - 자식 Feature 의 Actions
-        
+
+        // MARK: - Child Feature Actions
+
         case mediaViewer(MediaViewerFeature.Action)
         case drawer(DrawerFeature.Action)
         case mediaUpload(MediaUploadFeature.Action)
@@ -219,6 +240,9 @@ struct ChatRoomFeature {
         
         Reduce { state, action in
             switch action {
+
+            // MARK: - Lifecycle
+
             case .onAppear:
                 state.isLoading = true
                 let chatRoomId = state.chatRoomId
@@ -226,8 +250,12 @@ struct ChatRoomFeature {
                 let otherUserId = state.otherUser?.id
                 let isGroupChat = state.isGroupChat
 
-                // 채팅방 정보 로드 + 메시지 관찰 동시 시작
                 return .merge(
+                    // 캐싱한 메시지 로드
+                    .run { [chatRoomRepository] send in
+                        let cached = try await chatRoomRepository.loadCachedMessages(chatRoomId, 30)
+                        await send(.cachedMessagesLoaded(cached))
+                    },
                     // 채팅방 정보 로드 (joinedAt 확인용)
                     .run { [chatRoomRepository] send in
                         if isGroupChat {
@@ -242,17 +270,12 @@ struct ChatRoomFeature {
                             await send(.chatRoomLoaded(nil))
                         }
                     },
-                    // 메시지 실시간 관찰
-                    .run { [chatRoomRepository] send in
-                        for await messages in chatRoomRepository.observeMessages(chatRoomId, 30) {
-                            await send(.messagesUpdated(messages))
-                        }
-                    }
-                    .cancellable(id: "observeMessages", cancelInFlight: true)
                 )
 
             case .onDisappear:
                 return .cancel(id: "observeMessages")
+
+            // MARK: - Text Message Send
 
             case let .inputTextChanged(text):
                 state.inputText = text
@@ -322,9 +345,15 @@ struct ChatRoomFeature {
                     }
                 }
 
-            case let .messagesUpdated(messages):
-                // createdAt 기준 오름차순 정렬 (오래된 메시지가 위에)
-                state.messages = messages.sorted { $0.createdAt < $1.createdAt }
+            // MARK: - Message Sync (캐시 로드 + 실시간 관찰 + 순방향 페이지네이션)
+
+            case let .messagesUpdated(newMessages):
+                // ID 기반 중복 제거 후 병합 (기존 messages + observer 메시지)
+                var messageDict = Dictionary(uniqueKeysWithValues: state.messages.map { ($0.id, $0) })
+                for msg in newMessages {
+                    messageDict[msg.id] = msg
+                }
+                state.messages = messageDict.values.sorted { $0.createdAt < $1.createdAt }
                 state.isLoading = false
                 return .none
 
@@ -341,6 +370,57 @@ struct ChatRoomFeature {
                 state.isSending = false
                 state.error = error.localizedDescription
                 return .none
+            
+            case let .cachedMessagesLoaded(messages):
+                if !messages.isEmpty {
+                    state.messages = messages
+                    state.isLoading = false
+                }
+                return .none
+
+            case .startObserving:
+                let chatRoomId = state.chatRoomId
+                return .run { [chatRoomRepository] send in
+                    for await messages in chatRoomRepository.observeMessages(chatRoomId) {
+                        await send(.messagesUpdated(messages))
+                    }
+                }
+                .cancellable(id: "observeMessages", cancelInFlight: true)
+
+            case let .newerMessagesFetched(.success(messages)):
+                state.isLoadingNewer = false
+
+                // 첫 순방향 페이지네이션 결과에서 unread divider 위치 설정
+                if state.unreadDividerMessageId == nil && state.initialUnreadCount > 0 && !messages.isEmpty {
+                    state.unreadDividerMessageId = messages.first?.id
+                }
+
+                if !messages.isEmpty {
+                    var messageDict = Dictionary(uniqueKeysWithValues: state.messages.map { ($0.id, $0) })
+                    for msg in messages {
+                        messageDict[msg.id] = msg
+                    }
+                    state.messages = messageDict.values.sorted { $0.createdAt < $1.createdAt }
+                }
+                state.isLoading = false
+                if messages.count < 30 {
+                    // 마지막 페이지 도달 → 리스너 시작
+                    state.hasMoreNewerMessages = false
+                    return .send(.startObserving)
+                } else {
+                    state.hasMoreNewerMessages = true
+                    return .none
+                }
+
+            case let .newerMessagesFetched(.failure(error)):
+                state.isLoadingNewer = false
+                state.isLoading = false
+                state.hasMoreNewerMessages = false
+                state.error = error.localizedDescription
+                // 실패 시에도 리스너 시작하여 실시간 메시지는 수신
+                return .send(.startObserving)
+
+            // MARK: - Pagination (역방향: 위로 스크롤 / 순방향: 아래로 스크롤)
 
             case .loadMoreMessages:
                 guard !state.isLoadingMore, state.hasMoreMessages else {
@@ -349,13 +429,16 @@ struct ChatRoomFeature {
 
                 state.isLoadingMore = true
                 let chatRoomId = state.chatRoomId
-                let beforeCreatedAt = state.messages.first?.createdAt  // 가장 오래된 메시지의 createdAt
+                let beforeCreatedAt = state.messages.first?.createdAt
+                let joinedAt = state.currentUserJoinedAt
 
                 return .run { [chatRoomRepository] send in
                     do {
-                        let olderMessages = try await chatRoomRepository.fetchMessages(
+                        guard let beforeCreatedAt else { return }
+                        let olderMessages = try await chatRoomRepository.fetchOlderMessages(
                             chatRoomId,
                             beforeCreatedAt,
+                            joinedAt,
                             30
                         )
                         await send(.moreMessagesLoaded(.success(olderMessages)))
@@ -378,33 +461,74 @@ struct ChatRoomFeature {
                 state.error = error.localizedDescription
                 return .none
 
+            case .loadNewerMessages:
+                guard state.hasMoreNewerMessages, !state.isLoadingNewer else { return .none }
+                guard let afterCreatedAt = state.messages.last?.createdAt else { return .none }
+
+                state.isLoadingNewer = true
+                let chatRoomId = state.chatRoomId
+
+                return .run { [chatRoomRepository] send in
+                    do {
+                        let newer = try await chatRoomRepository.fetchNewerMessages(chatRoomId, afterCreatedAt, 30)
+                        await send(.newerMessagesFetched(.success(newer)))
+                    } catch {
+                        await send(.newerMessagesFetched(.failure(error)))
+                    }
+                }
+
+            // MARK: - ChatRoom Load + Rejoin (동기화 전략 결정)
+
             case let .chatRoomLoaded(chatRoom):
                 if let chatRoom = chatRoom {
-                    // 채팅방 존재
                     if let joinedAt = chatRoom.activeUsers[state.currentUserId] {
-                        // 현재 활성 유저 → joinedAt 저장
                         state.currentUserJoinedAt = joinedAt
                         state.needsRejoin = false
                     } else {
-                        // 나간 상태 → 재입장 필요
                         state.needsRejoin = true
                     }
                 } else {
-                    // 새 채팅방 (아직 생성되지 않음)
                     state.needsRejoin = false
                 }
-                return .none
+
+                // 동기화 전략 결정
+                if state.needsRejoin {
+                    // Case E: 재입장 필요 → 사용자가 메시지 전송할 때까지 대기
+                    state.isLoading = false
+                    return .none
+                } else if state.initialUnreadCount == 0 || state.messages.isEmpty {
+                    // Case A/D: 안읽은 메시지 없음 또는 캐시 없음 → 리스너 즉시 시작
+                    return .send(.startObserving)
+                } else {
+                    // Case B: 안읽은 메시지 있음 + 캐시 있음 → 순방향 페이지네이션
+                    guard let afterCreatedAt = state.messages.last?.createdAt else {
+                        return .send(.startObserving)
+                    }
+                    state.hasMoreNewerMessages = true
+                    state.isLoadingNewer = true
+                    let chatRoomId = state.chatRoomId
+                    return .run { [chatRoomRepository] send in
+                        do {
+                            let newer = try await chatRoomRepository.fetchNewerMessages(chatRoomId, afterCreatedAt, 30)
+                            await send(.newerMessagesFetched(.success(newer)))
+                        } catch {
+                            await send(.newerMessagesFetched(.failure(error)))
+                        }
+                    }
+                }
 
             case .rejoinCompleted(.success):
-                // 재입장 완료 → joinedAt을 현재 시간으로 설정
+                // 재입장 완료 → joinedAt을 현재 시간으로 설정 + 리스너 시작
                 state.currentUserJoinedAt = Date()
                 state.needsRejoin = false
-                return .none
+                return .send(.startObserving)
 
             case let .rejoinCompleted(.failure(error)):
                 state.isSending = false
                 state.error = error.localizedDescription
                 return .none
+
+            // MARK: - Invite Friends (그룹 채팅 초대)
 
             case .inviteFriendsButtonTapped:
                 guard state.isGroupChat else { return .none }
@@ -468,6 +592,8 @@ struct ChatRoomFeature {
                 state.error = error.localizedDescription
                 return .none
 
+            // MARK: - Reinvite (시스템 메시지 재초대)
+
             case let .reinviteUserTapped(userId, nickname):
                 state.reinviteConfirmTarget = ReinviteTarget(userId: userId, nickname: nickname)
                 return .none
@@ -512,7 +638,7 @@ struct ChatRoomFeature {
                 state.error = error.localizedDescription
                 return .none
 
-            // MARK: - Media Actions
+            // MARK: - Media Upload & Send
 
             case .uploadStarted:
                 return .none
@@ -644,7 +770,7 @@ struct ChatRoomFeature {
                 state.error = error.localizedDescription
                 return .none
 
-            // MARK: - 업로드 실패 처리
+            // MARK: - Media Retry
 
             case let .retryUpload(itemId):
                 guard let failedItem = state.mediaUpload.uploadingItems[id: itemId],
@@ -688,8 +814,8 @@ struct ChatRoomFeature {
                     }
                 }
                 
-            // MARK: - 자식 Feature의 Action 처리
-                
+            // MARK: - Child Feature Actions
+
             case .mediaViewer:
                 return .none
                 
@@ -700,10 +826,6 @@ struct ChatRoomFeature {
                 )
                 return .none
             
-            case .drawer(.delegate(.leaveTapped)):
-                // TODO: 채팅방 나가기 로직
-                return .none
-                
             case .drawer:
                 return .none
             
@@ -755,6 +877,8 @@ extension ChatRoomFeature.Action {
              (.onDisappear, .onDisappear),
              (.sendButtonTapped, .sendButtonTapped),
              (.loadMoreMessages, .loadMoreMessages),
+             (.loadNewerMessages, .loadNewerMessages),
+             (.startObserving, .startObserving),
              (.inviteFriendsButtonTapped, .inviteFriendsButtonTapped),
              (.reinviteConfirmDismissed, .reinviteConfirmDismissed),
              (.reinviteConfirmed, .reinviteConfirmed),
@@ -782,6 +906,19 @@ extension ChatRoomFeature.Action {
             }
 
         case let (.moreMessagesLoaded(lhsResult), .moreMessagesLoaded(rhsResult)):
+            switch (lhsResult, rhsResult) {
+            case let (.success(lhsMessages), .success(rhsMessages)):
+                return lhsMessages == rhsMessages
+            case let (.failure(lhsError), .failure(rhsError)):
+                return lhsError.localizedDescription == rhsError.localizedDescription
+            default:
+                return false
+            }
+
+        case let (.cachedMessagesLoaded(lhsMessages), .cachedMessagesLoaded(rhsMessages)):
+            return lhsMessages == rhsMessages
+
+        case let (.newerMessagesFetched(lhsResult), .newerMessagesFetched(rhsResult)):
             switch (lhsResult, rhsResult) {
             case let (.success(lhsMessages), .success(rhsMessages)):
                 return lhsMessages == rhsMessages
