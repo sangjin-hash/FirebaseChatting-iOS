@@ -35,9 +35,16 @@ extension ChatListRepository: DependencyKey {
                             var unreadCounts: [String: Int] = [:]
                             for chatRoom in chatRooms {
                                 let localIndex = (try? await localDataSource.getLastReadIndex(chatRoom.id)) ?? 0
-                                let unread = max(0, chatRoom.index - localIndex)
-                                if unread > 0 {
-                                    unreadCounts[chatRoom.id] = unread
+
+                                if localIndex == 0 && chatRoom.index > 0 {
+                                    // 로컬에 index가 없는 경우 (첫 진입 전 or 재초대)
+                                    // → 현재 서버 index로 초기화하여 이전 메시지를 unread로 카운트하지 않음
+                                    try? await localDataSource.updateIndex(chatRoom.id, chatRoom.index, nil)
+                                } else {
+                                    let unread = max(0, chatRoom.index - localIndex)
+                                    if unread > 0 {
+                                        unreadCounts[chatRoom.id] = unread
+                                    }
                                 }
                             }
                             continuation.yield((chatRooms, unreadCounts))
