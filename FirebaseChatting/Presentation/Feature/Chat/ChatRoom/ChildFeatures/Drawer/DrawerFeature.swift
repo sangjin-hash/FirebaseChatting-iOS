@@ -27,14 +27,12 @@ struct DrawerFeature {
         
         // Menu Actions
         case inviteButtonTapped
-        case leaveButtonTapped
-        
+
         // Delegate
         case delegate(Delegate)
-        
+
         enum Delegate: Equatable {
             case inviteTapped
-            case leaveTapped
         }
     }
     
@@ -59,10 +57,6 @@ struct DrawerFeature {
                     await send(.delegate(.inviteTapped))
                 }
             
-            case .leaveButtonTapped:
-                state.isOpen = false
-                return .send(.delegate(.leaveTapped))
-                
             case .delegate:
                 return .none
             }
