@@ -13,33 +13,43 @@ struct LoginView: View {
 
     var body: some View {
         VStack(alignment: .leading) {
-            Text(Strings.Auth.login)
-                .font(.system(size: 28, weight: .bold))
-                .foregroundColor(.bkText)
-                .padding(.top, 80)
-                .padding(.horizontal, 30)
-
+            titleLabel
             Spacer()
-
-            Button {
-                store.send(.googleLoginButtonTapped)
-            } label: {
-                Text(Strings.Auth.googleLogin)
-                    .font(.system(size: 14))
-                    .foregroundColor(.bkText)
-                    .frame(maxWidth: .infinity, maxHeight: 40)
-            }
-            .overlay {
-                RoundedRectangle(cornerRadius: 5)
-                    .stroke(Color.greyLight, lineWidth: 0.8)
-            }
-            .padding(.horizontal, 15)
+            googleLoginButton
         }
         .overlay {
             if store.isLoading {
                 ProgressView()
             }
         }
+    }
+}
+
+// MARK: - Subviews
+
+private extension LoginView {
+    var titleLabel: some View {
+        Text(Strings.Auth.login)
+            .font(.system(size: 28, weight: .bold))
+            .foregroundColor(.bkText)
+            .padding(.top, 80)
+            .padding(.horizontal, 30)
+    }
+
+    var googleLoginButton: some View {
+        Button {
+            store.send(.googleLoginButtonTapped)
+        } label: {
+            Text(Strings.Auth.googleLogin)
+                .font(.system(size: 14))
+                .foregroundColor(.bkText)
+                .frame(maxWidth: .infinity, maxHeight: 40)
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 5)
+                .stroke(Color.greyLight, lineWidth: 0.8)
+        }
+        .padding(.horizontal, 15)
     }
 }
 
