@@ -30,7 +30,7 @@ struct ChatListIntegrationTests {
             $0.chatListRepository.observeChatRooms = { ids in
                 #expect(ids == chatRoomIds)
                 return AsyncStream { continuation in
-                    continuation.yield(chatRooms)
+                    continuation.yield((chatRooms, [:]))
                     continuation.finish()
                 }
             }
@@ -78,6 +78,8 @@ struct ChatListIntegrationTests {
                 #expect(userId == "user-123")
                 leaveCalled = true
             }
+            // ChatListFeature.leaveConfirmed에서 chatRoomRepository를 캡처하므로 명시적 제공
+            $0.chatRoomRepository.sendSystemMessageWithLeftUser = { _, _, _, _ in }
         }
 
         // When - user swipes to leave
@@ -113,7 +115,7 @@ struct ChatListIntegrationTests {
         } withDependencies: {
             $0.chatListRepository.observeChatRooms = { _ in
                 AsyncStream { continuation in
-                    continuation.yield(initialRooms)
+                    continuation.yield((initialRooms, [:]))
                     continuation.finish()
                 }
             }
@@ -194,7 +196,7 @@ struct ChatListIntegrationTests {
             $0.chatListRepository.observeChatRooms = { ids in
                 observeCalledWithIds = ids
                 return AsyncStream { continuation in
-                    continuation.yield(chatRooms)
+                    continuation.yield((chatRooms, [:]))
                     continuation.finish()
                 }
             }
@@ -240,7 +242,7 @@ struct ChatListIntegrationTests {
             $0.chatListRepository.observeChatRooms = { ids in
                 AsyncStream { continuation in
                     if ids == newIds {
-                        continuation.yield(allRooms)
+                        continuation.yield((allRooms, [:]))
                     }
                     continuation.finish()
                 }
@@ -284,7 +286,7 @@ struct ChatListIntegrationTests {
             $0.chatListRepository.observeChatRooms = { ids in
                 observeCallCount += 1
                 return AsyncStream { continuation in
-                    continuation.yield(chatRooms)
+                    continuation.yield((chatRooms, [:]))
                     continuation.finish()
                 }
             }
@@ -329,5 +331,119 @@ struct ChatListIntegrationTests {
 
         // Direct: Profile 닉네임
         #expect(state.displayName(for: TestData.chatRoom1) == "Friend One")
+    }
+
+    // MARK: - 2.1 Observer Lifecycle: 진입 → 나감 → Observer 재시작 → 최신 데이터 반영
+
+    @Test
+    func test_observerLifecycle_cancelAndRestartReceivesUpdatedData() async {
+        // Given
+        let chatRoomIds = ["chatroom-1", "chatroom-2"]
+        let initialChatRooms = TestData.chatRooms  // 2개
+        let updatedChatRooms = TestData.chatRoomsWithGroup  // 4개 (새 데이터 포함)
+
+        var observeCallCount = 0
+
+        var state = ChatListFeature.State()
+        state.currentUserId = "user-123"
+
+        let store = TestStore(initialState: state) {
+            ChatListFeature()
+        } withDependencies: {
+            $0.chatListRepository.observeChatRooms = { ids in
+                observeCallCount += 1
+                let currentCall = observeCallCount
+                return AsyncStream { continuation in
+                    if currentCall == 1 {
+                        continuation.yield((initialChatRooms, [:]))
+                    } else {
+                        continuation.yield((updatedChatRooms, [:]))
+                    }
+                    continuation.finish()
+                }
+            }
+        }
+
+        // Step 1: setChatRoomIds → observer 시작 → initialChatRooms 수신
+        await store.send(.setChatRoomIds(chatRoomIds)) {
+            $0.chatRoomIds = chatRoomIds
+            $0.isLoading = true
+        }
+        await store.receive(\.chatRoomsUpdated) {
+            $0.chatRooms = initialChatRooms
+            $0.isLoading = false
+            $0.error = nil
+        }
+
+        // Step 2: chatRoomTapped → observer cancel
+        await store.send(.chatRoomTapped(initialChatRooms[0])) {
+            $0.chatRoomDestination = ChatRoomFeature.State(
+                chatRoomId: initialChatRooms[0].id,
+                currentUserId: "user-123",
+                chatRoomType: initialChatRooms[0].type,
+                activeUserIds: Array(initialChatRooms[0].activeUsers.keys)
+            )
+        }
+
+        // Step 3: dismiss → observer 재시작 → updatedChatRooms 수신
+        await store.send(.chatRoomDestination(.dismiss)) {
+            $0.chatRoomDestination = nil
+        }
+        await store.receive(\.chatRoomsUpdated) {
+            $0.chatRooms = updatedChatRooms
+        }
+
+        // Verify: observer가 2번 호출됨 (초기 + 재시작)
+        #expect(observeCallCount == 2)
+    }
+
+    // MARK: - 2.2 unreadCount → ChatRoom 동기화 전략 결정
+
+    @Test
+    func test_unreadCount_passedToChatRoomAsInitialUnreadCount() async {
+        // Given
+        let chatRoomIds = ["chatroom-1", "chatroom-2"]
+        let chatRooms = TestData.chatRooms
+        let unreadCounts: [String: Int] = ["chatroom-1": 5, "chatroom-2": 0]
+
+        var state = ChatListFeature.State()
+        state.currentUserId = "user-123"
+
+        let store = TestStore(initialState: state) {
+            ChatListFeature()
+        } withDependencies: {
+            $0.chatListRepository.observeChatRooms = { _ in
+                AsyncStream { continuation in
+                    continuation.yield((chatRooms, unreadCounts))
+                    continuation.finish()
+                }
+            }
+        }
+
+        // Step 1: setChatRoomIds → unreadCounts 수신
+        await store.send(.setChatRoomIds(chatRoomIds)) {
+            $0.chatRoomIds = chatRoomIds
+            $0.isLoading = true
+        }
+        await store.receive(\.chatRoomsUpdated) {
+            $0.chatRooms = chatRooms
+            $0.unreadCounts = unreadCounts
+            $0.isLoading = false
+            $0.error = nil
+        }
+
+        // Step 2: chatRoomTapped → initialUnreadCount = 5 전달 확인
+        await store.send(.chatRoomTapped(chatRooms[0])) {
+            $0.chatRoomDestination = ChatRoomFeature.State(
+                chatRoomId: chatRooms[0].id,
+                currentUserId: "user-123",
+                chatRoomType: chatRooms[0].type,
+                activeUserIds: Array(chatRooms[0].activeUsers.keys),
+                initialUnreadCount: 5
+            )
+        }
+
+        // Verify: ChatRoomFeature.State의 initialUnreadCount가 올바르게 전달됨
+        #expect(store.state.chatRoomDestination?.initialUnreadCount == 5)
     }
 }
