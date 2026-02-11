@@ -26,6 +26,7 @@ struct ChatListFeatureTests {
         #expect(state.chatRooms == [])
         #expect(state.chatRoomProfiles == [:])
         #expect(state.isLoading == false)
+        #expect(state.unreadCounts == [:])
         #expect(state.error == nil)
         #expect(state.leaveConfirmTarget == nil)
         #expect(state.chatRoomDestination == nil)
@@ -94,7 +95,7 @@ struct ChatListFeatureTests {
         let chatRooms = TestData.chatRooms
 
         // When
-        await store.send(.chatRoomsUpdated(chatRooms)) {
+        await store.send(.chatRoomsUpdated(chatRooms, [:])) {
             // Then
             $0.chatRooms = chatRooms
             $0.isLoading = false
@@ -182,6 +183,7 @@ struct ChatListFeatureTests {
             ChatListFeature()
         } withDependencies: {
             $0.chatListRepository.leaveChatRoom = { _, _ in }
+            $0.chatRoomRepository.sendSystemMessageWithLeftUser = { _, _, _, _ in }
         }
 
         // When
@@ -283,7 +285,7 @@ struct ChatListFeatureTests {
             $0.chatListRepository.observeChatRooms = { ids in
                 #expect(ids == chatRoomIds)
                 return AsyncStream { continuation in
-                    continuation.yield(chatRooms)
+                    continuation.yield((chatRooms, [:]))
                     continuation.finish()
                 }
             }
@@ -320,7 +322,7 @@ struct ChatListFeatureTests {
             $0.chatListRepository.observeChatRooms = { ids in
                 AsyncStream { continuation in
                     if ids == newIds {
-                        continuation.yield(newRooms)
+                        continuation.yield((newRooms, [:]))
                     }
                     continuation.finish()
                 }
@@ -336,6 +338,42 @@ struct ChatListFeatureTests {
         // Then - should receive updated chatRooms
         await store.receive(\.chatRoomsUpdated) {
             $0.chatRooms = newRooms
+            $0.isLoading = false
+            $0.error = nil
+        }
+    }
+
+    @Test
+    func test_setChatRoomIds_updatesUnreadCounts() async {
+        // Given
+        let chatRoomIds = ["chatroom-1", "chatroom-2"]
+        let chatRooms = TestData.chatRooms
+        let unreadCounts: [String: Int] = ["chatroom-1": 5, "chatroom-2": 3]
+
+        var state = ChatListFeature.State()
+        state.currentUserId = "user-123"
+
+        let store = TestStore(initialState: state) {
+            ChatListFeature()
+        } withDependencies: {
+            $0.chatListRepository.observeChatRooms = { _ in
+                AsyncStream { continuation in
+                    continuation.yield((chatRooms, unreadCounts))
+                    continuation.finish()
+                }
+            }
+        }
+
+        // When
+        await store.send(.setChatRoomIds(chatRoomIds)) {
+            $0.chatRoomIds = chatRoomIds
+            $0.isLoading = true
+        }
+
+        // Then - unreadCounts가 State에 반영되어야 함
+        await store.receive(\.chatRoomsUpdated) {
+            $0.chatRooms = chatRooms
+            $0.unreadCounts = unreadCounts
             $0.isLoading = false
             $0.error = nil
         }
@@ -467,7 +505,7 @@ struct ChatListFeatureTests {
             $0.chatListRepository.observeChatRooms = { ids in
                 #expect(ids == chatRoomIds)
                 return AsyncStream { continuation in
-                    continuation.yield(chatRooms)
+                    continuation.yield((chatRooms, [:]))
                     continuation.finish()
                 }
             }
@@ -520,7 +558,7 @@ struct ChatListFeatureTests {
         }
 
         // When
-        await store.send(.chatRoomsUpdated([])) {
+        await store.send(.chatRoomsUpdated([], [:])) {
             // Then
             $0.chatRooms = []
             $0.isLoading = false
