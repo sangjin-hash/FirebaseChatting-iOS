@@ -50,9 +50,9 @@ struct ChatRoomFeatureTests {
         ) {
             ChatRoomFeature()
         } withDependencies: {
-            $0.chatRoomRepository.observeMessages = { chatRoomId, limit in
+            $0.chatRoomRepository.loadCachedMessages = { _, _ in [] }
+            $0.chatRoomRepository.observeMessages = { chatRoomId in
                 #expect(chatRoomId == "chatroom-1")
-                #expect(limit == 30)
                 return AsyncStream { continuation in
                     continuation.yield(messages)
                     continuation.finish()
@@ -65,8 +65,12 @@ struct ChatRoomFeatureTests {
             $0.isLoading = true
         }
 
-        // Then - otherUser가 없으면 chatRoomLoaded(nil)을 받음
-        await store.receive(\.chatRoomLoaded) // nil case
+        // Then - chatRoomLoaded(nil) → startObserving → cachedMessagesLoaded → messagesUpdated
+        // otherUser가 nil이면 chatRoomLoaded(nil)이 async 호출 없이 즉시 도착
+        // chatRoomLoaded가 .send(.startObserving)을 반환하므로 startObserving이 cachedMessagesLoaded보다 먼저 처리됨
+        await store.receive(\.chatRoomLoaded)
+        await store.receive(\.startObserving)
+        await store.receive(\.cachedMessagesLoaded)
         await store.receive(\.messagesUpdated) {
             $0.messages = messages
             $0.isLoading = false
@@ -97,7 +101,8 @@ struct ChatRoomFeatureTests {
         ) {
             ChatRoomFeature()
         } withDependencies: {
-            $0.chatRoomRepository.observeMessages = { _, _ in
+            $0.chatRoomRepository.loadCachedMessages = { _, _ in [] }
+            $0.chatRoomRepository.observeMessages = { _ in
                 AsyncStream { continuation in
                     continuation.yield(messages)
                     continuation.finish()
@@ -113,11 +118,13 @@ struct ChatRoomFeatureTests {
             $0.isLoading = true
         }
 
-        // Then - chatRoomLoaded로 joinedAt 설정
+        // Then - 캐시 로드 + chatRoomLoaded → startObserving → messagesUpdated
+        await store.receive(\.cachedMessagesLoaded)
         await store.receive(\.chatRoomLoaded) {
             $0.currentUserJoinedAt = joinedAt
             $0.needsRejoin = false
         }
+        await store.receive(\.startObserving)
         await store.receive(\.messagesUpdated) {
             $0.messages = messages
             $0.isLoading = false
@@ -316,10 +323,10 @@ struct ChatRoomFeatureTests {
         let store = TestStore(initialState: state) {
             ChatRoomFeature()
         } withDependencies: {
-            $0.chatRoomRepository.fetchMessages = { chatRoomId, beforeCreatedAt, limit in
+            $0.chatRoomRepository.fetchOlderMessages = { chatRoomId, beforeCreatedAt, joinedAt, limit in
                 #expect(chatRoomId == "chatroom-1")
-                // 가장 오래된 메시지의 createdAt보다 이전 메시지를 가져옴
                 #expect(beforeCreatedAt == existingMessages.first?.createdAt)
+                #expect(joinedAt == nil)
                 #expect(limit == 30)
                 return olderMessages
             }
@@ -353,7 +360,7 @@ struct ChatRoomFeatureTests {
         let store = TestStore(initialState: state) {
             ChatRoomFeature()
         } withDependencies: {
-            $0.chatRoomRepository.fetchMessages = { _, _, _ in
+            $0.chatRoomRepository.fetchOlderMessages = { _, _, _, _ in
                 return [] // 더 이상 메시지 없음
             }
         }
@@ -816,6 +823,288 @@ struct ChatRoomFeatureTests {
             $0.isInviting = false
             $0.error = TestError.networkError.localizedDescription
         }
+    }
+
+    // MARK: - Cached Messages Tests
+
+    @Test
+    func test_cachedMessagesLoaded_withMessages_setsState() async {
+        // Given
+        var state = ChatRoomFeature.State(
+            chatRoomId: "chatroom-1",
+            currentUserId: "current-user-123"
+        )
+        state.isLoading = true
+
+        let store = TestStore(initialState: state) {
+            ChatRoomFeature()
+        }
+
+        let cachedMessages = TestData.messages
+
+        // When & Then
+        await store.send(.cachedMessagesLoaded(cachedMessages)) {
+            $0.messages = cachedMessages
+            $0.isLoading = false
+        }
+    }
+
+    @Test
+    func test_cachedMessagesLoaded_empty_doesNotChangeState() async {
+        // Given
+        var state = ChatRoomFeature.State(
+            chatRoomId: "chatroom-1",
+            currentUserId: "current-user-123"
+        )
+        state.isLoading = true
+
+        let store = TestStore(initialState: state) {
+            ChatRoomFeature()
+        }
+
+        // When & Then - 빈 캐시는 상태를 변경하지 않음
+        await store.send(.cachedMessagesLoaded([]))
+    }
+
+    // MARK: - ChatRoom Loaded Sync Strategy Tests
+
+    @Test
+    func test_chatRoomLoaded_noUnread_startsObserving() async {
+        // Given - Case A/D: 안읽은 메시지 없음 → 리스너 즉시 시작
+        let joinedAt = Date()
+        let chatRoom = ChatRoom(
+            id: "chatroom-1",
+            type: .direct,
+            lastMessage: "Hello",
+            lastMessageAt: Date(),
+            index: 1,
+            userHistory: ["current-user-123", "friend-1"],
+            activeUsers: ["current-user-123": joinedAt, "friend-1": joinedAt]
+        )
+
+        let state = ChatRoomFeature.State(
+            chatRoomId: "chatroom-1",
+            currentUserId: "current-user-123",
+            initialUnreadCount: 0
+        )
+
+        let store = TestStore(initialState: state) {
+            ChatRoomFeature()
+        } withDependencies: {
+            $0.chatRoomRepository.observeMessages = { _ in
+                AsyncStream { $0.finish() }
+            }
+        }
+
+        // When
+        await store.send(.chatRoomLoaded(chatRoom)) {
+            $0.currentUserJoinedAt = joinedAt
+            $0.needsRejoin = false
+        }
+
+        // Then - startObserving 전송
+        await store.receive(\.startObserving)
+    }
+
+    @Test
+    func test_chatRoomLoaded_withUnreadMessages_startsPagination() async {
+        // Given - Case B: 안읽은 메시지 있음 + 캐시 있음 → 순방향 페이지네이션
+        let cachedMessages = TestData.messages
+        let newerMessages = TestData.newerMessages
+        let joinedAt = Date()
+        let chatRoom = ChatRoom(
+            id: "chatroom-1",
+            type: .direct,
+            lastMessage: "Hello",
+            lastMessageAt: Date(),
+            index: 5,
+            userHistory: ["current-user-123", "friend-1"],
+            activeUsers: ["current-user-123": joinedAt, "friend-1": joinedAt]
+        )
+
+        var state = ChatRoomFeature.State(
+            chatRoomId: "chatroom-1",
+            currentUserId: "current-user-123",
+            initialUnreadCount: 5
+        )
+        state.messages = cachedMessages
+
+        let store = TestStore(initialState: state) {
+            ChatRoomFeature()
+        } withDependencies: {
+            $0.chatRoomRepository.fetchNewerMessages = { _, _, _ in
+                return newerMessages
+            }
+            $0.chatRoomRepository.observeMessages = { _ in
+                AsyncStream { $0.finish() }
+            }
+        }
+
+        // When
+        await store.send(.chatRoomLoaded(chatRoom)) {
+            $0.currentUserJoinedAt = joinedAt
+            $0.needsRejoin = false
+            $0.hasMoreNewerMessages = true
+            $0.isLoadingNewer = true
+        }
+
+        // Then - newerMessages.count (2) < 30 → 리스너 시작
+        await store.receive(\.newerMessagesFetched.success) {
+            $0.isLoadingNewer = false
+            // unread divider: initialUnreadCount > 0 이므로 첫 newer 메시지 ID 설정
+            $0.unreadDividerMessageId = newerMessages.first?.id
+            var messageDict = Dictionary(uniqueKeysWithValues: cachedMessages.map { ($0.id, $0) })
+            for msg in newerMessages {
+                messageDict[msg.id] = msg
+            }
+            $0.messages = messageDict.values.sorted { $0.createdAt < $1.createdAt }
+            $0.isLoading = false
+            $0.hasMoreNewerMessages = false
+        }
+        await store.receive(\.startObserving)
+    }
+
+    @Test
+    func test_chatRoomLoaded_needsRejoin_stopsLoading() async {
+        // Given - Case E: 재입장 필요 → 사용자가 메시지 전송할 때까지 대기
+        let chatRoom = ChatRoom(
+            id: "chatroom-1",
+            type: .direct,
+            lastMessage: "Hello",
+            lastMessageAt: Date(),
+            index: 1,
+            userHistory: ["current-user-123", "friend-1"],
+            activeUsers: ["friend-1": Date()] // current user NOT in activeUsers
+        )
+
+        var state = ChatRoomFeature.State(
+            chatRoomId: "chatroom-1",
+            currentUserId: "current-user-123"
+        )
+        state.isLoading = true
+
+        let store = TestStore(initialState: state) {
+            ChatRoomFeature()
+        }
+
+        // When & Then - 재입장 필요 → 로딩 중지, 리스너 시작하지 않음
+        await store.send(.chatRoomLoaded(chatRoom)) {
+            $0.needsRejoin = true
+            $0.isLoading = false
+        }
+    }
+
+    // MARK: - Forward Pagination (Newer Messages) Tests
+
+    @Test
+    func test_loadNewerMessages_fetchesNewerMessages() async {
+        // Given
+        let existingMessages = TestData.messages
+        let newerMessages = TestData.newerMessages
+
+        var state = ChatRoomFeature.State(
+            chatRoomId: "chatroom-1",
+            currentUserId: "current-user-123"
+        )
+        state.messages = existingMessages
+        state.hasMoreNewerMessages = true
+
+        let store = TestStore(initialState: state) {
+            ChatRoomFeature()
+        } withDependencies: {
+            $0.chatRoomRepository.fetchNewerMessages = { chatRoomId, afterCreatedAt, limit in
+                #expect(chatRoomId == "chatroom-1")
+                #expect(afterCreatedAt == existingMessages.last?.createdAt)
+                #expect(limit == 30)
+                return newerMessages
+            }
+            $0.chatRoomRepository.observeMessages = { _ in
+                AsyncStream { $0.finish() }
+            }
+        }
+
+        // When
+        await store.send(.loadNewerMessages) {
+            $0.isLoadingNewer = true
+        }
+
+        // Then - newerMessages.count < 30 → 리스너 시작
+        await store.receive(\.newerMessagesFetched.success) {
+            $0.isLoadingNewer = false
+            var messageDict = Dictionary(uniqueKeysWithValues: existingMessages.map { ($0.id, $0) })
+            for msg in newerMessages {
+                messageDict[msg.id] = msg
+            }
+            $0.messages = messageDict.values.sorted { $0.createdAt < $1.createdAt }
+            $0.isLoading = false
+            $0.hasMoreNewerMessages = false
+        }
+        await store.receive(\.startObserving)
+    }
+
+    @Test
+    func test_loadNewerMessages_whenNoMoreNewerMessages_doesNothing() async {
+        // Given
+        var state = ChatRoomFeature.State(
+            chatRoomId: "chatroom-1",
+            currentUserId: "current-user-123"
+        )
+        state.hasMoreNewerMessages = false
+
+        let store = TestStore(initialState: state) {
+            ChatRoomFeature()
+        }
+
+        // When & Then
+        await store.send(.loadNewerMessages)
+    }
+
+    @Test
+    func test_loadNewerMessages_whenAlreadyLoading_doesNothing() async {
+        // Given
+        var state = ChatRoomFeature.State(
+            chatRoomId: "chatroom-1",
+            currentUserId: "current-user-123"
+        )
+        state.hasMoreNewerMessages = true
+        state.isLoadingNewer = true
+
+        let store = TestStore(initialState: state) {
+            ChatRoomFeature()
+        }
+
+        // When & Then
+        await store.send(.loadNewerMessages)
+    }
+
+    @Test
+    func test_newerMessagesFetched_failure_startsObserving() async {
+        // Given
+        var state = ChatRoomFeature.State(
+            chatRoomId: "chatroom-1",
+            currentUserId: "current-user-123"
+        )
+        state.isLoadingNewer = true
+        state.isLoading = true
+
+        let store = TestStore(initialState: state) {
+            ChatRoomFeature()
+        } withDependencies: {
+            $0.chatRoomRepository.observeMessages = { _ in
+                AsyncStream { $0.finish() }
+            }
+        }
+
+        // When
+        await store.send(.newerMessagesFetched(.failure(TestError.networkError))) {
+            $0.isLoadingNewer = false
+            $0.isLoading = false
+            $0.hasMoreNewerMessages = false
+            $0.error = TestError.networkError.localizedDescription
+        }
+
+        // Then - 실패 시에도 리스너 시작
+        await store.receive(\.startObserving)
     }
 
     // MARK: - Lazy Group Chat Creation Tests
