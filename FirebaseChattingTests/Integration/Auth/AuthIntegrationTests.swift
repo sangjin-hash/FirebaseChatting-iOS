@@ -70,7 +70,36 @@ struct AuthIntegrationTests {
         }
     }
 
-    // MARK: - 1.3 Logout Flow (Delegate from MainTab)
+    // MARK: - 1.3 Login Failure Shows Error
+
+    @Test
+    func test_loginFailure_showsError() async {
+        // Given: AuthFeature in unauthenticated state
+        let store = TestStore(initialState: AuthFeature.State()) {
+            AuthFeature()
+        } withDependencies: {
+            $0.authRepository.checkAuthenticationState = { nil }
+            $0.authRepository.signInWithGoogle = { throw AuthError.firebaseError("Network error") }
+        }
+
+        // When: User taps login button
+        await store.send(.googleLoginButtonTapped) {
+            $0.isLoading = true
+            $0.error = nil
+        }
+
+        // Then: Login fails with error
+        await store.receive(\.googleLoginResponse.failure) {
+            $0.isLoading = false
+            $0.error = .firebaseError("Network error")
+        }
+
+        // Verify: MainTab was not created
+        #expect(store.state.mainTab == nil)
+        #expect(store.state.authenticationState == .unauthenticated)
+    }
+
+    // MARK: - 1.4 Logout Flow (Delegate from MainTab)
 
     @Test
     func test_logoutFlow_delegateFromMainTab() async {
