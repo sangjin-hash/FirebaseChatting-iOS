@@ -46,6 +46,7 @@ struct FullScreenImageViewer: View {
             .onAppear {
                 virtualIndex = currentIndex + 1
             }
+            .accessibilityIdentifier(AccessibilityID.ImageViewer.container)
         }
     }
 

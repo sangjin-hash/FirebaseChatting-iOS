@@ -57,6 +57,8 @@ struct MediaGrid: View {
             .onTapGesture {
                 onImageTapped(index)
             }
+            .accessibilityIdentifier("media_grid_cell_\(index)")
+            .accessibilityAddTraits(.isButton)
     }
 }
 

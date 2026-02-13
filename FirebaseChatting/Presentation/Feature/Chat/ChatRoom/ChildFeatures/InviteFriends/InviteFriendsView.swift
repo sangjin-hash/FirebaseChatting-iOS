@@ -72,6 +72,7 @@ private extension InviteFriendsView {
             store.send(.inviteButtonTapped)
         }
         .disabled(!store.canInvite)
+        .accessibilityIdentifier(AccessibilityID.InviteFriends.inviteButton)
     }
 }
 

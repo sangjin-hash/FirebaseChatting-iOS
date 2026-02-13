@@ -31,6 +31,7 @@ struct VideoPlayerView: View {
                 .offset(y: verticalDragOffset)
         }
         .gesture(verticalDismissGesture)
+        .accessibilityIdentifier(AccessibilityID.VideoPlayer.container)
         .onAppear {
             player = AVPlayer(url: url)
         }

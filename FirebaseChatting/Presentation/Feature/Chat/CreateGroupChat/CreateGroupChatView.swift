@@ -25,6 +25,7 @@ struct CreateGroupChatView: View {
                     Button(Strings.Common.cancel) {
                         dismiss()
                     }
+                    .accessibilityIdentifier(AccessibilityID.CreateGroupChat.cancelButton)
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     createButton
@@ -54,6 +55,7 @@ private extension CreateGroupChatView {
                                 store.send(.friendToggled(friend.id))
                             }
                         )
+                        .accessibilityIdentifier(AccessibilityID.CreateGroupChat.friend(friend.id))
                         .listRowBackground(Color.clear)
                         .listRowSeparator(.hidden)
                         .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
@@ -71,6 +73,7 @@ private extension CreateGroupChatView {
             Text(Strings.Chat.create)
         }
         .disabled(!store.canCreate)
+        .accessibilityIdentifier(AccessibilityID.CreateGroupChat.createButton)
     }
 }
 

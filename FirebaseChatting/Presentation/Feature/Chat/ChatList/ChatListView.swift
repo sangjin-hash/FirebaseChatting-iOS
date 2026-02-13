@@ -24,12 +24,23 @@ struct ChatListView: View {
             }
             .navigationTitle(Strings.Chat.title)
             .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Text(Strings.Chat.title)
+                        .font(.headline)
+                        .accessibilityIdentifier(AccessibilityID.ChatList.title)
+                        .onTapGesture(count: 3) {
+                            if ProcessInfo.processInfo.arguments.contains("-UITesting") {
+                                UITestTrigger.shared.fireChatListEvent()
+                            }
+                        }
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         store.send(.createGroupChatButtonTapped)
                     } label: {
                         Image(systemName: "plus.bubble")
                     }
+                    .accessibilityIdentifier(AccessibilityID.ChatList.createGroupButton)
                 }
             }
             .sheet(item: $store.scope(state: \.createGroupChatDestination, action: \.createGroupChatDestination)) { createGroupChatStore in
@@ -69,6 +80,7 @@ struct ChatListView: View {
             title: Strings.Chat.noChatRooms,
             description: Strings.Chat.noChatRoomsDescription
         )
+        .accessibilityIdentifier(AccessibilityID.ChatList.emptyState)
     }
 
     private var chatRoomList: some View {
@@ -96,10 +108,12 @@ struct ChatListView: View {
                         Label(Strings.Chat.leave, systemImage: "door.left.hand.open")
                     }
                     .tint(.red)
+                    .accessibilityIdentifier(AccessibilityID.ChatList.leaveButton)
                 }
             }
         }
         .listStyle(.plain)
+        .accessibilityIdentifier(AccessibilityID.ChatList.rooms)
     }
 }
 

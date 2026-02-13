@@ -57,6 +57,7 @@ struct ChatRoomRowItem: View {
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 2)
                                 .background(Color.red, in: Capsule())
+                                .accessibilityIdentifier(AccessibilityID.ChatList.unread(chatRoom.id))
                         }
                     }
                 }
@@ -79,6 +80,7 @@ struct ChatRoomRowItem: View {
             .scaleEffect(isPressed ? 0.98 : 1.0)
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier(AccessibilityID.ChatList.room(chatRoom.id))
         .onLongPressGesture(minimumDuration: .infinity, pressing: { pressing in
             withAnimation(.easeInOut(duration: 0.15)) {
                 isPressed = pressing
