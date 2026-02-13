@@ -13,12 +13,21 @@ import ComposableArchitecture
 struct FirebaseChattingApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var delegate
 
-    let store = Store(initialState: AppFeature.State()) {
-        AppFeature()
-    }
+    let store: StoreOf<AppFeature>
 
     init() {
-        configureKingfisherCache()
+        if ProcessInfo.processInfo.arguments.contains("-UITesting") {
+            store = Store(initialState: AppFeature.State()) {
+                AppFeature()
+            } withDependencies: {
+                UITestingDependencies.configure(&$0)
+            }
+        } else {
+            store = Store(initialState: AppFeature.State()) {
+                AppFeature()
+            }
+            configureKingfisherCache()
+        }
     }
 
     var body: some Scene {
