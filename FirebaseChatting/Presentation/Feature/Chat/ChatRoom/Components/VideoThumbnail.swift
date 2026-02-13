@@ -80,6 +80,8 @@ struct VideoThumbnail: View {
         .onTapGesture {
             onTap()
         }
+        .accessibilityIdentifier("video_thumbnail_button")
+        .accessibilityAddTraits(.isButton)
         .task {
             await loadThumbnail()
         }

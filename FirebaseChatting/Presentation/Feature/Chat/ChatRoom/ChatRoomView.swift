@@ -80,6 +80,7 @@ private extension ChatRoomView {
                 Image(systemName: "line.3.horizontal")
             }
         }
+        .accessibilityIdentifier(AccessibilityID.ChatRoom.drawerButton)
     }
 }
 
@@ -215,6 +216,7 @@ private extension ChatRoomView {
                         ForEach(Array(group.messages.enumerated()), id: \.element.id) { index, message in
                             if message.id == store.unreadDividerMessageId {
                                 UnreadDivider()
+                                    .id("unread-divider")
                             }
 
                             let prevMessage = index > 0 ? group.messages[index - 1] : nil
@@ -277,6 +279,14 @@ private extension ChatRoomView {
                     initialScrollDone = true
                     if let lastId = store.filteredMessages.last?.id {
                         proxy.scrollTo(lastId, anchor: .bottom)
+                    }
+                }
+            }
+            .onChange(of: store.unreadDividerMessageId) { _, newDividerId in
+                if newDividerId != nil {
+                    Task {
+                        try? await Task.sleep(for: .milliseconds(50))
+                        proxy.scrollTo("unread-divider", anchor: .bottom)
                     }
                 }
             }
@@ -403,6 +413,7 @@ private extension ChatRoomView {
                         .foregroundColor(store.mediaUpload.isUploading ? .gray : .blue)
                 }
                 .disabled(store.mediaUpload.isUploading)
+                .accessibilityIdentifier(AccessibilityID.ChatRoom.mediaButton)
 
                 TextField(
                     store.mediaUpload.hasSelectedMedia ? Strings.Chat.mediaSelectedCount(store.mediaUpload.selectedMediaItems.count) : Strings.Chat.messageInputPlaceholder,
@@ -411,6 +422,7 @@ private extension ChatRoomView {
                 .textFieldStyle(.roundedBorder)
                 .submitLabel(.send)
                 .focused($isTextFieldFocused)
+                .accessibilityIdentifier(AccessibilityID.ChatRoom.messageInput)
                 .onSubmit {
                     if store.mediaUpload.hasSelectedMedia {
                         store.send(.mediaUpload(.sendMediaButtonTapped))
@@ -439,6 +451,7 @@ private extension ChatRoomView {
                     }
                 }
                 .disabled(!store.canSendAny || store.mediaUpload.isUploading)
+                .accessibilityIdentifier(AccessibilityID.ChatRoom.sendButton)
             }
             .padding(.horizontal)
             .padding(.vertical, 8)

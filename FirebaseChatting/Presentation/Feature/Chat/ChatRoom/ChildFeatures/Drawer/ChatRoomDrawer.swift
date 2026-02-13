@@ -22,6 +22,7 @@ struct ChatRoomDrawer: View {
                         .onTapGesture {
                             store.send(.drawer(.setOpen(false)))
                         }
+                        .accessibilityIdentifier(AccessibilityID.Drawer.backdrop)
                 }
 
                 // Drawer 컨텐츠
@@ -72,6 +73,7 @@ struct ChatRoomDrawer: View {
                             .padding()
                         }
                         .disabled(store.invitableFriends.isEmpty)
+                        .accessibilityIdentifier(AccessibilityID.Drawer.inviteButton)
                     }
                     .frame(width: geometry.size.width * widthRatio)
                     .frame(maxHeight: .infinity, alignment: .top)
@@ -85,6 +87,7 @@ struct ChatRoomDrawer: View {
                         )
                     )
                     .offset(x: store.drawer.isOpen ? 0 : geometry.size.width * widthRatio)
+                    .accessibilityIdentifier(AccessibilityID.Drawer.container)
                 }
                 .ignoresSafeArea(edges: .bottom)
             }

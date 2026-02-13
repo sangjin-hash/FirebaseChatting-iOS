@@ -231,6 +231,7 @@ struct DateSeparator: View {
                 .font(.caption2)
                 .foregroundColor(.secondary)
                 .padding(.horizontal, 8)
+                .accessibilityIdentifier(AccessibilityID.ChatRoom.dateSeparator)
 
             Rectangle()
                 .fill(Color.secondary.opacity(0.3))
@@ -253,6 +254,7 @@ struct UnreadDivider: View {
                 .font(.caption2)
                 .foregroundColor(.blue)
                 .padding(.horizontal, 8)
+                .accessibilityIdentifier(AccessibilityID.ChatRoom.unreadDivider)
 
             Rectangle()
                 .fill(Color.blue.opacity(0.5))

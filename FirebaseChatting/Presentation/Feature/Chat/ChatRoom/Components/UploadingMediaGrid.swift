@@ -48,6 +48,7 @@ struct UploadingMediaGrid: View {
                 }
             }
         }
+        .accessibilityIdentifier(AccessibilityID.ChatRoom.uploadingGrid)
     }
 
     private var failedItemActions: some View {
